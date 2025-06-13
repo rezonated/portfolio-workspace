@@ -1,0 +1,19 @@
+.spoiler {
+    background-color: #444;
+    color: transparent;
+    border-radius: 4px;
+    padding: 2px 4px;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+  
+.spoiler.revealed {
+    color: inherit;
+}
+
+pre code {
+    white-space: pre-wrap !important;
+    word-break: break-word;
+    overflow-x: auto;
+}
+  

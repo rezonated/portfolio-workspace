@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>C&#43;&#43; on V&#39;s personal site</title>
+    <link>http://localhost:1313/tags/c&#43;&#43;/</link>
+    <description>Recent content in C&#43;&#43; on V&#39;s personal site</description>
+    <generator>Hugo</generator>
+    <language>en-us</language>
+    <lastBuildDate>Fri, 13 Jun 2025 00:00:00 +0000</lastBuildDate>
+    <atom:link href="http://localhost:1313/tags/c++/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Networked Deterministic Array Shuffle in Unreal Engine</title>
+      <link>http://localhost:1313/posts/deterministic_shuffle/</link>
+      <pubDate>Fri, 13 Jun 2025 00:00:00 +0000</pubDate>
+      <guid>http://localhost:1313/posts/deterministic_shuffle/</guid>
+      <description>&lt;h1 class=&#34;heading&#34; id=&#34;introduction&#34;&gt;&#xD;&#xA;  Introduction&#xD;&#xA;  &lt;a class=&#34;anchor&#34; href=&#34;#introduction&#34;&gt;#&lt;/a&gt;&#xD;&#xA;&lt;/h1&gt;&#xD;&#xA;&lt;p&gt;Sometimes, you want to do a deterministic shuffle of an array for purposes like gacha mechanics, or in my case, replicating the Spin the Wheel minigame in Coral Island!&lt;/p&gt;&#xA;&lt;p&gt;&#xD;&#xA;&#xD;&#xA;&#xD;&#xA;&#xD;&#xA;&#xD;&#xA;&#xD;&#xA;&#xD;&#xA;&#xD;&#xA;&#xD;&#xA;&#xD;&#xA;&#xD;&#xA;&#xD;&#xA;&lt;figure class=&#34;&#34;&gt;&#xD;&#xA;&#xD;&#xA;    &lt;div class=&#34;img-container&#34; &gt;&#xD;&#xA;        &lt;img loading=&#34;lazy&#34; alt=&#34;Spin the Wheel - Coral Island&#34; src=&#34;http://localhost:1313/posts/deterministic_shuffle/spin_the_wheel.png&#34; &gt;&#xD;&#xA;    &lt;/div&gt;&#xD;&#xA;&#xD;&#xA;    &#xD;&#xA;    &lt;div class=&#34;caption-container&#34;&gt;&#xD;&#xA;        &lt;figcaption&gt; One of festival minigames that players can play in Coral Island &lt;/figcaption&gt;&#xD;&#xA;    &lt;/div&gt;&#xD;&#xA;    &#xD;&#xA;&lt;/figure&gt;&#xD;&#xA;&lt;/p&gt;&#xA;&lt;p&gt;At the time this feature was developed, it hadn&amp;rsquo;t yet been made to work with multiplayer. Even though Coral Island is a co-op game, not a competitive one, Unreal Engine still adopts a server-authoritative multiplayer model.&lt;/p&gt;</description>
+    </item>
+  </channel>
+</rss>

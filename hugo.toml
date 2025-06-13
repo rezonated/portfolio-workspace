@@ -1,0 +1,76 @@
+baseURL = 'https://rezonated.github.io'
+languageCode = 'en-us'
+title = "V's personal site"
+theme = 'typo'
+
+[taxonomies]
+tag = 'tags'
+
+[params]
+# Meta description
+description = "A Tech Blog"
+favicon = "/favicon.ico"
+backToTop = false
+customCSS = ["css/custom.css"]
+
+# Appearance settings
+theme = 'dark'
+colorPalette = 'default'
+hideHeader = false
+
+# Breadcrumbs
+[params.breadcrumbs]
+enabled = true
+showCurrentPage = true
+home = "~"
+
+# Social icons
+[[params.social]]
+name = "linkedin"
+url = "https://www.linkedin.com/in/vanan-a-4a2b40141/"
+
+[[params.social]]
+name = "github"
+url = "https://github.com/rezonated"
+
+# Main menu pages
+[[params.menu]]
+name = "~"
+url = "/"
+
+[[params.menu]]
+name = "cv"
+url = "/cv"
+
+[[params.menu]]
+name = "projects"
+url = "/projects"
+
+[[params.menu]]
+name = "posts"
+url = "/posts"
+
+[[params.menu]]
+name = "whoami"
+url = "/whoami"
+
+# Syntax highlight on code blocks
+[markup]
+[markup.highlight]
+style = 'algol'
+
+[outputs]
+home = ["HTML", "RSS", "JSON"]
+
+[markup.goldmark.renderer]
+unsafe = true
+
+# Giscus comments
+[params.giscus]
+enable = false
+repo = "user/repo"
+repoid = "repoId"
+category = "General"
+categoryid = "categoryId"
+mapping = "pathname"
+theme = "preferred_color_scheme"

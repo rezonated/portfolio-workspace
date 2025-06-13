@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en-us"
+  dir="ltr">
+
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+
+
+
+
+
+
+
+
+    
+
+
+
+
+
+
+<link rel="icon" type="image/ico" href="http://localhost:1313/favicon.ico">
+<link rel="icon" type="image/png" sizes="16x16" href="http://localhost:1313/favicon-16x16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="http://localhost:1313/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="http://localhost:1313/android-chrome-192x192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="http://localhost:1313/apple-touch-icon.png">
+
+<meta name="description" content="This short article shows one way to do a deterministic array shuffle in Unreal Engine."/>
+
+
+
+<title>
+    
+    Networked Deterministic Array Shuffle in Unreal Engine | V&#39;s personal site
+    
+</title>
+
+<link rel="canonical" href="http://localhost:1313/posts/deterministic_shuffle/"/>
+
+<meta property="og:url" content="http://localhost:1313/posts/deterministic_shuffle/">
+  <meta property="og:site_name" content="V&#39;s personal site">
+  <meta property="og:title" content="Networked Deterministic Array Shuffle in Unreal Engine">
+  <meta property="og:description" content="This short article shows one way to do a deterministic array shuffle in Unreal Engine.">
+  <meta property="og:locale" content="en_us">
+  <meta property="og:type" content="article">
+    <meta property="article:section" content="posts">
+    <meta property="article:published_time" content="2025-06-13T00:00:00+00:00">
+    <meta property="article:modified_time" content="2025-06-13T00:00:00+00:00">
+    <meta property="article:tag" content="Multiplayer">
+    <meta property="article:tag" content="Ue">
+    <meta property="article:tag" content="C&#43;&#43;">
+
+
+
+
+
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/assets/combined.min.df9b6321051b464d71ce502bb8b0e734e1a2fe8bee8ab6b34988129419f92db8.css" media="all">
+
+
+
+
+
+
+
+
+
+
+
+    
+
+
+
+
+</head>
+
+
+
+
+
+
+
+<body class="dark">
+
+  <div class="content">
+    <header>
+      
+
+<div class="header">
+
+    
+
+</div>
+
+    </header>
+
+    <main class="main">
+      
+
+
+
+
+<div class="breadcrumbs"><a href="/">~</a><span class="breadcrumbs-separator">/</span><a href="/posts/">Posts</a><span class="breadcrumbs-separator">/</span>
+        <a href="/posts/deterministic_shuffle/">Networked Deterministic Array Shuffle in Unreal Engine</a></div>
+
+
+<div  class="autonumber" >
+  <article>
+    <header class="single-intro-container">
+        
+        <h1 class="single-title">Networked Deterministic Array Shuffle in Unreal Engine</h1>
+        
+        <div class="single-subsummary">
+          
+          <div>
+            
+            <p class="single-date">
+              <time datetime="2025-06-13T00:00:00&#43;00:00">June 13, 2025</time>
+              &nbsp; · &nbsp;5 min read
+            </p>
+          </div>
+        </div>
+        
+    </header>
+    
+    <div class="single-content">
+      <h1 class="heading" id="introduction">
+  Introduction
+  <a class="anchor" href="#introduction">#</a>
+</h1>
+<p>Sometimes, you want to do a deterministic shuffle of an array for purposes like gacha mechanics, or in my case, replicating the Spin the Wheel minigame in Coral Island!</p>
+<p>
+
+
+
+
+
+
+
+
+
+
+
+<figure class="">
+
+    <div class="img-container" >
+        <img loading="lazy" alt="Spin the Wheel - Coral Island" src="/posts/deterministic_shuffle/spin_the_wheel.png" >
+    </div>
+
+    
+    <div class="caption-container">
+        <figcaption> One of festival minigames that players can play in Coral Island </figcaption>
+    </div>
+    
+</figure>
+</p>
+<p>At the time this feature was developed, it hadn&rsquo;t yet been made to work with multiplayer. Even though Coral Island is a co-op game, not a competitive one, Unreal Engine still adopts a server-authoritative multiplayer model.</p>
+<p>The server must always act as the single source of truth.</p>
+<p><strong>Reminder:</strong><br>
+Unreal Engine uses an authoritative server model for all gameplay state. This ensures that clients never directly control important game logic that could cause desync or cheating.</p>
+<h1 class="heading" id="what-even-is-deterministic-anyway">
+  What even is deterministic, anyway?
+  <a class="anchor" href="#what-even-is-deterministic-anyway">#</a>
+</h1>
+<p>In simple terms, deterministic means that given the same input, you always get the same result.</p>
+<p>That’s exactly what we want in multiplayer: avoid desync between clients and server that can mess up gameplay logic.</p>
+<h1 class="heading" id="why-do-you-need-this">
+  Why do you need this?
+  <a class="anchor" href="#why-do-you-need-this">#</a>
+</h1>
+<p>One requirement for this minigame was that the order of rewards shown on the UI should be randomized on each play session.</p>
+<p>Behind the scenes, the minigame itself is fairly simple: it&rsquo;s just a <code>TArray</code> of <code>GameplayEffect</code> structs representing the rewards for that festival.</p>
+<p>When the Spin button is clicked, the array gets shuffled, and the last index is picked as the reward for that player.</p>
+<p>The shuffle happens immediately after clicking, while a UMG spinning animation plays on the wheel. Once the shuffle result is ready, the animation stops at the correct index.</p>
+<p>Keep in mind: this article won’t show any Coral Island production code, only a heavily simplified version of it.</p>
+<h1 class="heading" id="show-me-how">
+  Show me how!
+  <a class="anchor" href="#show-me-how">#</a>
+</h1>
+<p>We start by introducing a Seed. A seed is simply an integer that initializes a pRNG (pseudo-Random Number Generator).<br>
+In Unreal Engine, we have <code>FRandomStream</code>. You can initialize it like this:</p>
+<div class="highlight"><pre tabindex="0" style="color:#ccc;background-color:#000;-moz-tab-size:4;-o-tab-size:4;tab-size:4;display:grid;"><code class="language-cpp" data-lang="cpp"><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">1</span><span>int32 Seed <span style="color:#39c">=</span> <span style="color:#cd00cd">69420</span>;
+</span></span><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">2</span><span><span style="color:#cdcd00">const</span> FRandomStream Stream{Seed};
+</span></span></code></pre></div><h1 class="heading" id="why-do-we-need-to-initialize-a-prng-with-a-seed">
+  Why do we need to initialize a pRNG with a seed?
+  <a class="anchor" href="#why-do-we-need-to-initialize-a-prng-with-a-seed">#</a>
+</h1>
+<p>The &ldquo;p&rdquo; in pRNG stands for pseudo: it&rsquo;s an algorithm that produces a sequence of numbers that appear random, but are fully determined by the initial state, the seed.</p>
+<p>This lets us control the randomness, which is crucial for deterministic multiplayer behavior.</p>
+<p>Many pRNG libraries will often use system time or entropy sources. Unreal&rsquo;s default randomness calls <code>rand()</code>, which may produce different results depending on platform or compiler.</p>
+<p><strong>Note:</strong><br>
+Internally, <code>FMath::Rand()</code> and other default UE random calls often use platform-specific implementations. This can result in different random sequences on different operating systems, CPU architectures, or even compiler versions. <code>FRandomStream</code> eliminates this variability entirely by using its own consistent, deterministic implementation.</p>
+<p>By using <code>FRandomStream</code> and explicitly initializing it, we eliminate this uncertainty.</p>
+<p>The server, regardless of whether it’s running on Steam, Xbox, or PlayStation 5, becomes the source of truth.</p>
+<p>The client only needs to receive and handle the result appropriately.</p>
+<h1 class="heading" id="what-about-actually-shuffling">
+  What about actually shuffling?
+  <a class="anchor" href="#what-about-actually-shuffling">#</a>
+</h1>
+<p>Yes, Unreal does have a built-in helper under <code>Algo::RandomShuffle()</code>.<br>
+However, as the name implies, it&rsquo;s random and we don&rsquo;t have any control over the generated sequence.</p>
+<p>So let’s write our own shuffle, keeping things generic using templates:</p>
+<div class="highlight"><pre tabindex="0" style="color:#ccc;background-color:#000;-moz-tab-size:4;-o-tab-size:4;tab-size:4;display:grid;"><code class="language-cpp" data-lang="cpp"><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 1</span><span><span style="color:#cdcd00">template</span> <span style="color:#39c">&lt;</span><span style="color:#cdcd00">class</span> <span style="color:#00cdcd">T</span><span style="color:#39c">&gt;</span>
+</span></span><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 2</span><span><span style="color:#cdcd00">static</span> <span style="color:#00cd00">void</span> ShuffleArray(T<span style="color:#39c">&amp;</span> InArray, <span style="color:#cdcd00">const</span> int32 Seed)
+</span></span><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 3</span><span>{
+</span></span><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 4</span><span>    <span style="color:#cdcd00">const</span> FRandomStream Stream{Seed};
+</span></span><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 5</span><span>    <span style="color:#cdcd00">const</span> int32 LastIndex <span style="color:#39c">=</span> InArray.Num() <span style="color:#39c">-</span> <span style="color:#cd00cd">1</span>;
+</span></span><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 6</span><span>    <span style="color:#cdcd00">for</span> (int32 I <span style="color:#39c">=</span> <span style="color:#cd00cd">0</span>; I <span style="color:#39c">&lt;</span> LastIndex; <span style="color:#39c">++</span>I)
+</span></span><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 7</span><span>    {
+</span></span><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 8</span><span>        <span style="color:#cdcd00">const</span> int32 Index <span style="color:#39c">=</span> Stream.RandRange(<span style="color:#cd00cd">0</span>, LastIndex);
+</span></span><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 9</span><span>        <span style="color:#cdcd00">if</span> (I <span style="color:#39c">==</span> Index) <span style="color:#cdcd00">continue</span>;
+</span></span><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">10</span><span>        
+</span></span><span style="display:flex;"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">11</span><span>        InArray.Swap(I, Index);
+</span></span><span style="display:flex;"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">12</span><span>    }
+</span></span><span style="display:flex;"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">13</span><span>}
+</span></span></code></pre></div><p>Simple enough.</p>
+<p>This implementation is heavily inspired by a modern version of the Fisher-Yates shuffle, which ensures all permutations are equally likely.</p>
+<p>Consider reading the <a href="https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle">Wikipedia article</a> for more.</p>
+<h1 class="heading" id="how-do-i-use-it">
+  How do I use it?
+  <a class="anchor" href="#how-do-i-use-it">#</a>
+</h1>
+<p>The key is: run it only on the server.</p>
+<p>For example:</p>
+<div class="highlight"><pre tabindex="0" style="color:#ccc;background-color:#000;-moz-tab-size:4;-o-tab-size:4;tab-size:4;display:grid;"><code class="language-cpp" data-lang="cpp"><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">1</span><span>UPROPERTY(EditInstanceOnly, Replicated)
+</span></span><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">2</span><span>TArray<span style="color:#39c">&lt;</span>int32<span style="color:#39c">&gt;</span> Array <span style="color:#39c">=</span> {<span style="color:#cd00cd">0</span>, <span style="color:#cd00cd">1</span>, <span style="color:#cd00cd">2</span>, <span style="color:#cd00cd">3</span>, <span style="color:#cd00cd">4</span>, <span style="color:#cd00cd">5</span>, <span style="color:#cd00cd">6</span>, <span style="color:#cd00cd">7</span>, <span style="color:#cd00cd">8</span>, <span style="color:#cd00cd">9</span>};
+</span></span></code></pre></div><p>Now let’s test it by printing the result:</p>
+<div class="highlight"><pre tabindex="0" style="color:#ccc;background-color:#000;-moz-tab-size:4;-o-tab-size:4;tab-size:4;display:grid;"><code class="language-cpp" data-lang="cpp"><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 1</span><span>UE_LOG(LogTemp, Warning, TEXT(<span style="color:#cd0000">&#34;Seed: %d&#34;</span>), Seed);
+</span></span><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 2</span><span>
+</span></span><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 3</span><span>FString ArrayToShuffleString;
+</span></span><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 4</span><span>
+</span></span><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 5</span><span><span style="color:#cdcd00">for</span> (<span style="color:#cdcd00">const</span> int32 Number : Array)
+</span></span><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 6</span><span>{
+</span></span><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 7</span><span>    ArrayToShuffleString <span style="color:#39c">+=</span> FString<span style="color:#39c">::</span>FromInt(Number) <span style="color:#39c">+</span> <span style="color:#cd0000">&#34;, &#34;</span>;
+</span></span><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 8</span><span>}
+</span></span><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 9</span><span>
+</span></span><span style="display:flex; background-color:#191919"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">10</span><span>ArrayToShuffleString.RemoveAt(ArrayToShuffleString.Len() <span style="color:#39c">-</span> <span style="color:#cd00cd">2</span>);
+</span></span><span style="display:flex;"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">11</span><span>
+</span></span><span style="display:flex;"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">12</span><span>UE_LOG(LogTemp, Warning, TEXT(<span style="color:#cd0000">&#34;Array to shuffle: %s&#34;</span>), <span style="color:#39c">*</span>ArrayToShuffleString);
+</span></span><span style="display:flex;"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">13</span><span>
+</span></span><span style="display:flex;"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">14</span><span>TArray<span style="color:#39c">&lt;</span>int32<span style="color:#39c">&gt;</span> ArrayToShuffleCopy <span style="color:#39c">=</span> Array;
+</span></span><span style="display:flex;"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">15</span><span>
+</span></span><span style="display:flex;"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">16</span><span>ShuffleArray(ArrayToShuffleCopy, Seed);
+</span></span><span style="display:flex;"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">17</span><span>ArrayToShuffleString.Empty();
+</span></span><span style="display:flex;"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">18</span><span>
+</span></span><span style="display:flex;"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">19</span><span><span style="color:#cdcd00">for</span> (<span style="color:#cdcd00">const</span> int32 Number : ArrayToShuffleCopy)
+</span></span><span style="display:flex;"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">20</span><span>{
+</span></span><span style="display:flex;"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">21</span><span>    ArrayToShuffleString <span style="color:#39c">+=</span> FString<span style="color:#39c">::</span>FromInt(Number) <span style="color:#39c">+</span> <span style="color:#cd0000">&#34;, &#34;</span>;
+</span></span><span style="display:flex;"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">22</span><span>}
+</span></span><span style="display:flex;"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">23</span><span>
+</span></span><span style="display:flex;"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">24</span><span>ArrayToShuffleString.RemoveAt(ArrayToShuffleString.Len() <span style="color:#39c">-</span> <span style="color:#cd00cd">2</span>);
+</span></span><span style="display:flex;"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">25</span><span>
+</span></span><span style="display:flex;"><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">26</span><span>UE_LOG(LogTemp, Warning, TEXT(<span style="color:#cd0000">&#34;Shuffled array: %s&#34;</span>), <span style="color:#39c">*</span>ArrayToShuffleString);
+</span></span></code></pre></div><p>Now, every time you execute this with the same seed, you’ll always get the same shuffled result:</p>
+<pre tabindex="0"><code>Seed: 69
+Array to shuffle: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 
+Shuffled array: 3, 2, 0, 5, 4, 7, 6, 9, 8, 1 
+
+Seed: 69
+Array to shuffle: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 
+Shuffled array: 3, 2, 0, 5, 4, 7, 6, 9, 8, 1 
+
+Seed: 24
+Array to shuffle: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 
+Shuffled array: 1, 0, 6, 7, 9, 2, 3, 8, 5, 4 
+
+Seed: 24
+Array to shuffle: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 
+Shuffled array: 1, 0, 6, 7, 9, 2, 3, 8, 5, 4 
+</code></pre><h1 class="heading" id="how-do-i-replicate-it">
+  How do I replicate it?
+  <a class="anchor" href="#how-do-i-replicate-it">#</a>
+</h1>
+<p>If you want clients to receive the shuffle result, you have several options:</p>
+<ul>
+<li>Replication (if your data isn’t too large, otherwise consider Fast TArray Replication)</li>
+<li>Multicast RPC (if all clients need to know, but don’t need to store state)</li>
+<li>Client RPC (for fine-grained control targeting specific clients)</li>
+</ul>
+<p>In Coral Island, I use the Client RPC approach for this particular mechanic.</p>
+<p><strong>Replication Tip:</strong><br>
+In general, avoid replicating large shuffled arrays directly if they are big. Fast Array Replication is an excellent option for large structs or reward pools because it reduces bandwidth usage by only replicating changed items. See <a href="https://ikrima.dev/ue4guide/networking/network-replication/fast-tarray-replication/">Fast TArray Replication</a> for more details.</p>
+<p><strong>RPC Selection Guide:</strong></p>
+<ul>
+<li>Use Multicast RPC if all clients need to know and timing isn&rsquo;t critical.</li>
+<li>Use Client RPC for precision targeting and better control over network conditions.</li>
+</ul>
+<h1 class="heading" id="thats-all-folks">
+  That&rsquo;s all folks!
+  <a class="anchor" href="#thats-all-folks">#</a>
+</h1>
+<p>In conclusion: this is one way to achieve deterministic multiplayer behavior by using a pRNG initialized with a seed.</p>
+<ul>
+<li>The server stays as the authoritative source of truth.</li>
+<li>You eliminate randomness inconsistencies across platforms.</li>
+<li>The clients simply receive the shuffled result via replication or RPC.</li>
+</ul>
+<p>Thank you for reading - I hope this helps someone who needs to implement a similar mechanic.<br>
+See you next time!</p>
+
+    </div>
+  </article>
+
+  
+
+  
+
+  
+
+  
+
+  
+
+</div>
+
+
+    </main>
+  </div>
+
+  
+  
+
+
+
+
+
+    
+
+
+
+
+  <footer>
+    
+
+    
+    
+
+
+
+
+
+    
+
+
+
+
+    
+    
+    
+
+
+  </footer>
+
+  
+  <link rel="stylesheet" 
+  href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css">
+  
+<script defer 
+  src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js"></script>
+
+<script defer
+  src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body);"></script>
+
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    renderMathInElement(document.body, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "$", right: "$", display: false }
+      ]
+    });
+  });
+</script>
+  
+</body>
+
+<script src="/js/theme-switch.js"></script>
+<script defer src="/js/copy-code.js"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="/js/lastfm.js"></script>
+</html>
