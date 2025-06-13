@@ -67,10 +67,10 @@ unsafe = true
 
 # Giscus comments
 [params.giscus]
-enable = false
-repo = "user/repo"
-repoid = "repoId"
+enable = true
+repo = "rezonated/portfolio-workspace"
+repoid = "R_kgDOO7BdjA"
 category = "General"
-categoryid = "categoryId"
+categoryid = "DIC_kwDOO7BdjM4Crcmc"
 mapping = "pathname"
-theme = "preferred_color_scheme"
+theme = "dark"
