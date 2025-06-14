@@ -8,7 +8,7 @@ hidePagination: true
 readTime: true
 autonumber: true
 math: true
-tags: ["multiplayer", "ue", "c++"]
+tags: ["Multiplayer", "Unreal Engine", "c++"]
 showTags: false
 ---
 

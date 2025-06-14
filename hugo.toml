@@ -12,6 +12,7 @@ description = "A Tech Blog"
 favicon = "/favicon.ico"
 backToTop = false
 customCSS = ["css/custom.css"]
+paginationSize = 10
 
 # Appearance settings
 theme = 'dark'
@@ -57,7 +58,7 @@ url = "/whoami"
 # Syntax highlight on code blocks
 [markup]
 [markup.highlight]
-style = 'algol'
+style = 'dracula'
 
 [outputs]
 home = ["HTML", "RSS", "JSON"]
