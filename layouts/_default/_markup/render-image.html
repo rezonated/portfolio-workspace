@@ -1,0 +1,10 @@
+<!-- layouts/_default/_markup/render-image.html -->
+{{/* Check if the image source ends with .gif to apply special styling */}}
+{{ $isGif := strings.HasSuffix .Destination ".gif" }}
+
+<p>
+  <img src="{{ .Destination | safeURL }}" 
+       alt="{{ .Text }}" 
+       {{ if $isGif }}class="tall-image"{{ end }} 
+       {{ with .Title}} title="{{ . }}"{{ end }} />
+</p>

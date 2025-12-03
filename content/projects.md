@@ -8,6 +8,7 @@ hidePagination: true
 
 A list of my past and current projects:
 
+[Project Wiki](https://rezonated.github.io/wiki/)
 
 {{< dropdown title="ue-restyle" >}}
 

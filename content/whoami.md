@@ -6,9 +6,11 @@ hideBackToTop: true
 hidePagination: true
 ---
 
+Wow you found this page! 
+
 Hi again, my name is Vanan Andreas, although my full name is actually a _lot_ longer than that ({{< spoiler >}} Andreas E*vanan*da Gusti Purwanto {{< /spoiler >}}) - an Indonesian programmer specializing in game development using major game engines (Unreal Engine, Unity).
 
-Feel free to scroll through to know me a bit more!
+I don't have any reward for you for finding this page, but feel free to scroll through to know me a bit more!
 
 {{< dropdown title="Preferred tools" >}}
 
@@ -31,7 +33,7 @@ Feel free to scroll through to know me a bit more!
 - RAM: Harvested 2x4GB DDR3 OEM sticks
 
 #### Misc.
-- Keyboard: I often switch, but currently daily-driving an Eyelash Corne with ZMK
+- Keyboard: I often switch, but currently daily-driving a WKL Class60.
 - Mouse: Logitech Ergo M575
 - Phone: 1TB Realme GT Neo 5 SE
 - IEM: Simgot EW300
@@ -61,6 +63,7 @@ Feel free to scroll through to know me a bit more!
 Outside of work, I’m quite into custom mechanical keyboards. I’ve fallen into the rabbit hole ever since COVID started.
 
 Although I’ve sold most of my collection, here’s what I still have:
+- WKL Class60
 - Eyelash Corne w/ ZMK (weird ergo layout FTW!)
 - HHKB Pro 2 w/ JayKeeb custom controller
 - IBM Model M SSK
@@ -138,7 +141,7 @@ During this period, I worked across multiple areas: editor customization, tools 
 
 ---
 
-Now I’m happily working at Stairway Games, based in Denpasar (though most of us work remotely). I’m currently contributing to the major 1.2 update (and beyond) for [Coral Island](https://store.steampowered.com/app/1158160/Coral_Island/) (please wishlist if you haven’t already - buying the game also helps support us!)
+Now I’m happily working at Stairway Games, based in Denpasar (though most of us work remotely). I’m currently contributing to the major 1.2b update (and beyond) for [Coral Island](https://store.steampowered.com/app/1158160/Coral_Island/) (please wishlist if you haven’t already - buying the game also helps support us!)
 
 Here, I’ve focused heavily on multiplayer gameplay: resolving critical gameplay bugs (both single-player and multiplayer), implementing new multiplayer features, and optimizing network replication using techniques such as ReplicationGraph, push-model networking, and custom net serialization to support fast array and atomic replication.
 

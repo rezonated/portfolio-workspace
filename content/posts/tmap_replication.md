@@ -268,8 +268,7 @@ for (int I = 0; I < 10; ++I)
 Client_UpdateWrappedUnsignedIntFloatMap(WrappedUnsignedIntFloatMap);
 ```
 
-And on the receiving client:
-
+And that's it!
 ```
 Warning LogTemp Server_UpdateWrappedUnsignedIntFloat_Implementation
 Warning LogTemp ListenServer - Key: 102882, Value: 0.963286

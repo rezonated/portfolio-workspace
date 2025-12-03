@@ -51,10 +51,6 @@ url = "/projects"
 name = "posts"
 url = "/posts"
 
-[[params.menu]]
-name = "whoami"
-url = "/whoami"
-
 # Syntax highlight on code blocks
 [markup]
 [markup.highlight]

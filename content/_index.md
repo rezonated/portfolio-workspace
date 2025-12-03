@@ -12,7 +12,7 @@ I’ve worked on gameplay systems, tools, multiplayer networking, and backend se
 
 [View my CV](/cv/)
 
-Explore my [past projects](/projects/) or read my [blog](/posts/).
+Explore my [past and current projects](/projects/) or read my [blog](/posts/).
 
 ---
 Here’s what I’m currently listening to (if any), along with my top 3 songs of the week:

@@ -1,0 +1,39 @@
+site_name: Project Wikis
+site_description: Documentation hub for Vanan's Unreal and gameplay projects
+site_url: https://rezonated.github.io/wiki/
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.sections
+    - toc.integrate
+    - content.code.annotate
+    - content.tabs.link
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue
+      accent: cyan
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue
+      accent: cyan
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+  - pymdownx.details
+  - pymdownx.tasklist
+  - pymdownx.inlinehilite
+  - pymdownx.emoji
+  - pymdownx.mark
+
+nav:
+  - Home: index.md
+  - Projects:
+      - Unreal Fishing: fishing/index.md
+
+validation:
+  absolute_links: ignore
+  unrecognized_links: ignore
