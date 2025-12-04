@@ -3084,7 +3084,7 @@ void TakeDamage(int Amount) {
 } // Unlocks automatically when 'Lock' goes out of scope
 ```
 
-## 11b. `std::atomic`
+### 11b. `std::atomic`
 The lightweight fix. Hardware-supported operations that cannot be interrupted
 
 - Pros: Extremely fast (no context switching)
@@ -3102,7 +3102,7 @@ void TakeDamage(int Amount) {
 }
 ```
 
-## 11c. Job Systems (Task Graph)
+### 11c. Job Systems (Task Graph)
 Creating threads (`std::thread` or `FRunnable`) is expensive
 
 - Each thread takes ~1MB stack memory
