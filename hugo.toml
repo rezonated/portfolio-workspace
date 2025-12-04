@@ -7,6 +7,7 @@ theme = 'typo'
 tag = 'tags'
 
 [params]
+math = true
 # Meta description
 description = "A Tech Blog"
 favicon = "/favicon.ico"
@@ -55,6 +56,10 @@ url = "/posts"
 [markup]
 [markup.highlight]
 style = 'dracula'
+
+[markup.tableOfContents]
+startLevel = 1
+endLevel = 6
 
 [outputs]
 home = ["HTML", "RSS", "JSON"]

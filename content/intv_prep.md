@@ -2,16 +2,16 @@
 title: "V's Personal Interview Preparation Note"
 description: "A little bit about everything that I have gained and has been useful so far"
 hideHeader: true
-hideBackToTop: true
 hidePagination: true
 readTime: true
+toc: true
 ---
 
 Wow you found this page, welcome! It's either you;
 - Typed the correct URL (if that's the case, congrats!)
 - One of people that I trust and owe something to, so I hope this can help and paid a bit of something I owed
 
-Here's my personal interview preparation note. It started as an old note that I wrote back in college as a fresh-graduate, found in an old hard drive. 
+Here's my personal interview preparation note. It started as an old note that I wrote back in college as a fresh-graduate, found in an old hard drive
 
 But I decided to improve the whole thing by fact-checking and adding some things that either actually get asked in the interview or things that I learned, gained and experienced during my ~4+ years of career thus far
 
@@ -103,9 +103,9 @@ int Enemy::EnemyCount = 0;
 
 ## 4. RAII (Resource Acquisition is Initialization)
 
-Stupid name. But arguably one of the most important concept in modern C++. It relies entirely on Scope and Lifetime.
+Stupid name. But arguably one of the most important concept in modern C++. It relies entirely on Scope and Lifetime
 
-The concept: You _acquire a resource_ (open a file, allocate memory, lock a thread) in the **Constructor** and you _release it_ in the **Destructor**. C++ guarantees destructors run when a stack object goes out of scope, this subsequently prevents leaks.
+The concept: You _acquire a resource_ (open a file, allocate memory, lock a thread) in the **Constructor** and you _release it_ in the **Destructor**. C++ guarantees destructors run when a stack object goes out of scope, this subsequently prevents leaks
 
 **=== BAD CODE ===**
 ```cpp {linenos=inline}
@@ -583,6 +583,13 @@ Essentially this makes it so that:
 - No fragmentation, since you immediately fill the block linearly, no holes
 - Instant cleanup since we can free objects contained in the arenas by setting `Head = 0`
 
+**The Trap: Destructors**
+`Reset()` effectively frees the memory, but it **does not call destructors**
+- If you store **POD** (Plain Old Data, like `int`, `Vector3`, `Matrix`), this is fine
+- If you store complex objects (like `std::vector` or `std::string`) inside the arena, the object *wrapper* is freed, but the memory *it allocated internally* is leaked forever
+
+**The Fix:** Only use Arenas for POD types, or manually call the destructor `p->~T()` before resetting
+
 ```cpp {linenos=inline}
 #include <cstddef>
 #include <cstdint>
@@ -631,24 +638,19 @@ public:
 
 // Usage in game loop
 
-struct Particle { float x, y; };
+struct Particle { float x, y; }; // POD type: Safe!
 
 int main() {
-    // Create a 1MB Arena
     MemoryArena FrameArena(1024 * 1024); 
 
     while (GameIsRunning) {
-        // Reset the arena at the start of every frame.
-        // All memory from the previous frame is effectively "freed".
         FrameArena.Reset(); 
 
-        // Allocate 1000 particles instantly
         for (int i = 0; i < 1000; i++) {
-            // We use 'placement new' to construct objects in our custom memory
+            // Placement new
             void* mem = FrameArena.Alloc(sizeof(Particle));
             Particle* p = new(mem) Particle(); 
         }
-
         Render();
     }
 }
@@ -674,6 +676,63 @@ void* mem = Arena.Alloc(sizeof(Enemy));
 Enemy* e = new(mem) Enemy(); // Construct the enemy in our arena
 ```
 
+**The Trap: Alignment**
+If you allocate a `char` (1 byte) and then immediately allocate an `int` (4 bytes), the int might end up at memory address `0x01`. This is unaligned. On x86 CPUs, this is slow. On ARM (Mobile/Switch), this crashes the game
+
+**The Fix**: We must align the pointer before returning it
+
+```cpp {linenos=inline}
+#include <cstddef>
+#include <cstdint>
+#include <memory> // for std::align
+
+class MemoryArena {
+private:
+    uint8_t* MemoryBlock; 
+    size_t Size;          
+    size_t Offset;        
+
+public:
+    MemoryArena(size_t sizeBytes) : Size(sizeBytes), Offset(0) {
+        MemoryBlock = new uint8_t[sizeBytes]; 
+    }
+
+    ~MemoryArena() {
+        // WARNING: This does NOT call destructors for objects inside!
+        // Only use Arena for POD (Plain Old Data) or manually call destructors before resetting.
+        delete[] MemoryBlock;
+    }
+
+    void* Alloc(size_t sizeBytes, size_t alignment) {
+        // 1. Calculate current address
+        uintptr_t currentPtr = (uintptr_t)MemoryBlock + Offset;
+        
+        // 2. Calculate padding needed to align this address
+        // Example: Address is 1, alignment is 4. We need 3 bytes padding.
+        size_t padding = (alignment - (currentPtr % alignment)) % alignment;
+
+        // 3. Check space
+        if (Offset + padding + sizeBytes > Size) {
+            return nullptr; 
+        }
+
+        // 4. Apply padding and return aligned pointer
+        Offset += padding;
+        void* ptr = &MemoryBlock[Offset];
+        Offset += sizeBytes;
+        
+        return ptr;
+    }
+
+    void Reset() { Offset = 0; }
+};
+
+// Usage
+// alignof(T) gets the required alignment for a type
+void* mem = Arena.Alloc(sizeof(Enemy), alignof(Enemy));
+Enemy* e = new(mem) Enemy();
+```
+
 ## 8. Common C++ containers
 
 Choosing the right container is often a choice between "easy to write" vs "runs fast". Understanding of **Big O notation** and **CPU cache behavior** is important
@@ -692,20 +751,27 @@ Under the hood this is just a dynamic array. It allocates a contigous block of m
 
 When a vector fills up, it has to:
 - Allocate a new, bigger block of memory (usually 2x current size)
-- Copy **everything** from the old block to the new one
+- **Move or Copy** everything from the old block to the new one.
+- **The Trap:** `std::vector` will only **Move** (fast) if your Move Constructor is marked `noexcept`. If it isn't, C++ falls back to **Copying** (slow) to guarantee exception safety.
 - Delete the old block
 
-This is slow
-
-By reserving a certain number of elements in the array, we'll avoid reallocation
+This is slow. By reserving a certain number of elements in the array, we'll avoid reallocation.
 
 ```cpp {linenos=inline}
 std::vector<Enemy> enemies;
-// If we know we will have roughly 100 enemies:
-enemies.reserve(100); 
+enemies.reserve(100); // No reallocation for the first 100 items.
+```
 
-// Now, the first 100 push_back() calls will NOT trigger a reallocation.
-// This prevents memory fragmentation and CPU spikes.
+It's also a good idea to mark your Move Constructor as `noexcept` though:
+```cpp {linenos=inline}
+class Particle {
+public:
+    // FAST: Vector will move this when resizing
+    Particle(Particle&& other) noexcept { ... }
+
+    // SLOW: Vector will COPY this when resizing because it's not safe to move
+    Particle(Particle&& other) { ... } 
+};
 ```
 
 **Usage example: Entity Manager** 
@@ -1229,9 +1295,9 @@ Normal C++ code is SISD (Single Instruction, Single Data)
 
 To load data into these special registers efficiently, the memory address **must** be a multiple of the register size (typically 16 bytes for SSE)
 
-- Aligned load via `_mm_load_ps`: Fast, requires the addrress to end in `0`, `10`, `20`, etc. (Hex!)
-- Unaligned load via `__mm_loadu_ps`: Historically slower, nowadays it's negligible on modern CPUs. Safe to use on _any_ address
-- The crash is if you use Aligned load instruction on address that is _NOT_ aligned, e.g., ends in `0x04`. The CPU will throw a hardware exception and the game crashes instantly
+- Aligned load via `_mm_load_ps`: Fast. Requires the addrress to end in `0`, `10`, `20`, etc. (Hex!). **Crashes** if address is wrong
+- Unaligned load via `__mm_loadu_ps`: Historically slower, but on modern CPUs (Haswell and newer), the performance penalty is **negligible**. It is safe to use on _any_ address
+- **The Crash:** The real danger isn't speed, it's using an *Aligned* instruction on *Unaligned* memory (e.g., address ending in `0x04`). The CPU throws a hardware exception and the game crashes instantly
 
 
 #### Concrete example, the vector class
@@ -2199,7 +2265,7 @@ This runs once per second, not 60 times per second. It removes the load from the
 
 ## 5. Significance Manager
 
-Not all objects are equal. An enemy 5 meters away is "Significant." An enemy 500 meters away is "Insignificant.
+Not all objects are equal. An enemy 5 meters away is "Significant." An enemy 500 meters away is "Insignificant"
 
 How it works:
 - You implement logic to lower the "Tick Rate" based on significance
@@ -2362,8 +2428,8 @@ Complexity: O(1). Constant time. It doesn't matter if the inheritance depth is 2
 ### 7d. Other Cast Types
 - `CastChecked<T>`
   - Behavior: Casts the object. If it fails, Crashes the game (Asserts)
-  - Performance: In Shipping builds, this compiles down to a raw C-style cast. It is effectively free
-  - Usage: Use this when you are 100% sure of the type (e.g., inside `BeginPlay` after spawning a specific blueprint)
+  - Performance: In **Shipping** builds, the check is stripped out. It compiles down to a `static_cast` (or raw cast), making it effectively free
+  - Usage: Use this when you are 100% sure of the type (e.g., inside `BeginPlay` after spawning a specific blueprint) and you *want* it to crash during development if you are wrong
 
 - `ExactCast<T>`
   - Behavior: Checks if the object is exactly that class (not a child)
@@ -2376,4 +2442,3433 @@ So, `Cast<T>` is _not_ always expensive. It depends on the build configuration
 
 ## 8. Modular Architecture
 
+### 8a. The concept
 Unreal Engine is a collection of Modules (`Core`, `Engine`, `AIModule`, etc.). Your game should be too
+
+If you put your Inventory, AI, Combat, and UI all in one module (`MyGame`):
+1. Spaghetti Dependencies: The UI accidentally accesses private AI variables
+2. Compile Time: Changing one line in the Inventory header triggers a recompile of the AI and Combat systems
+3. No Reuse: You can't easily copy your Inventory system to your next project
+
+Instead, split features into separate Modules (or Plugins)
+- `MyGame_Core`: Interfaces, Types, Math (Depends on nothing)
+- `MyGame_Inventory`: Inventory Logic (Depends on Core)
+- `MyGame_Combat`: Combat Logic (Depends on Core)
+- `MyGame_Main`: The glue (Depends on Inventory & Combat)
+
+### 8b. "Clean" dependency rule via `Build.cs`
+Understand the difference between **Public** and **Private** dependencies in the `.Build.cs` file. This is how you enforce architecture
+
+- PublicDependencyModuleNames: "I expose types from this module in my public headers." (Transitive)
+- PrivateDependencyModuleNames: "I use this module internally, but no one including me needs to know about it." (Encapsulation)
+
+Example:
+Your `Inventory` module uses `Slate` internally to draw debug info.
+- Put `Slate` in **PrivateDependency**
+- Now, the `Combat` module (which depends on `Inventory`) does not automatically link against Slate. This keeps the build lightweight
+
+### 8c. Concrete example, inventory module
+
+Folder Structure:
+```cpp {linenos=inline}
+/Source
+  /MyGame_Inventory
+    /MyGame_Inventory.Build.cs
+    /Public
+      IInventoryInterface.h  <-- The Contract
+      InventoryComponent.h   <-- The Public API
+    /Private
+      InventoryComponent.cpp <-- The Implementation
+      InventoryInternalHelpers.h <-- Hidden from the rest of the game
+```
+
+**The Interface (`Public/IInventoryInterface.h`)**:
+
+We use an Interface to decouple systems. The UI module doesn't need to know about the InventoryComponent class, only that something has items
+
+```cpp {linenos=inline}
+#pragma once
+#include "CoreMinimal.h"
+#include "UObject/Interface.h"
+#include "IInventoryInterface.generated.h"
+
+UINTERFACE(MinimalAPI)
+class UInventoryInterface : public UInterface { GENERATED_BODY() };
+
+class MYGAME_INVENTORY_API IInventoryInterface {
+    GENERATED_BODY()
+public:
+    virtual int32 GetItemCount(FName ItemID) const = 0;
+    virtual bool AddItem(FName ItemID, int32 Amount) = 0;
+};
+```
+
+**The Build File (`MyGame_Inventory.Build.cs`)**:
+
+```cpp {linenos=inline}
+public class MyGame_Inventory : ModuleRules
+{
+    public MyGame_Inventory(ReadOnlyTargetRules Target) : base(Target)
+    {
+        // Expose the Interface to other modules
+        PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine" });
+        
+        // Internal logic only
+        PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" }); 
+    }
+}
+```
+
+## 9. Automation testing
+
+### 9a. Unit testing 
+
+Unreal has a built-in testing framework. You should write **Unit Tests** for pure C++ logic (like math or inventory calculations) that doesn't require spawning an Actor in a world
+
+```cpp {linenos=inline}
+// File: Private/Tests/InventoryTests.cpp
+
+#include "Misc/AutomationTest.h"
+#include "InventoryComponent.h"
+
+// Define the test: "MyGame.Inventory.AddItem"
+// Flags: EditorContext (Runs in Editor), EngineFilter (Standard test)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FInventoryAddItemTest, "MyGame.Inventory.AddItem", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FInventoryAddItemTest::RunTest(const FString& Parameters)
+{
+    // 1. Arrange (Setup)
+    // Since UComponents usually need an Owner, we might test a plain C++ struct helper here
+    // Or create a temporary object if possible.
+    // For this example, let's assume we have a helper struct 'FInventoryContainer'.
+    FInventoryContainer Container;
+    
+    // 2. Act (Execute)
+    Container.AddItem("Sword", 1);
+    Container.AddItem("Sword", 2);
+
+    // 3. Assert (Verify)
+    // TestEqual prints a nice error message if they don't match.
+    TestEqual(TEXT("Sword count should be 3"), Container.GetCount("Sword"), 3);
+    
+    // TestTrue checks boolean
+    TestTrue(TEXT("Container should not be empty"), Container.HasItems());
+
+    return true;
+}
+```
+
+### 9b. Functional Testing (Integration Test)
+Unit tests are great, but in Unreal, you often need to test things that require the World, Physics, or Spawning. This is a **Functional Test**
+
+We use `AFunctionalTest`, an actual Actor you place in a special Test Level
+```cpp {linenos=inline}
+// File: Private/Tests/Functional/InventoryFunctionalTest.h
+
+#include "FunctionalTest.h"
+#include "InventoryComponent.h"
+#include "InventoryFunctionalTest.generated.h"
+
+UCLASS()
+class AInventoryFunctionalTest : public AFunctionalTest
+{
+    GENERATED_BODY()
+
+public:
+    AInventoryFunctionalTest()
+    {
+        // Set a time limit for the test
+        TimeLimit = 5.0f;
+    }
+
+    virtual void StartTest() override
+    {
+        Super::StartTest();
+
+        // 1. Spawn a dummy actor
+        AActor* DummyActor = GetWorld()->SpawnActor<AActor>();
+        
+        // 2. Add our component
+        UInventoryComponent* InvComp = NewObject<UInventoryComponent>(DummyActor);
+        InvComp->RegisterComponent();
+
+        // 3. Perform Action
+        InvComp->AddItem("Gold", 100);
+
+        // 4. Verify
+        if (InvComp->GetItemCount("Gold") == 100)
+        {
+            FinishTest(EFunctionalTestResult::Succeeded, TEXT("Gold added successfully"));
+        }
+        else
+        {
+            FinishTest(EFunctionalTestResult::Failed, TEXT("Gold count mismatch"));
+        }
+        
+        // Cleanup
+        DummyActor->Destroy();
+    }
+};
+```
+
+How to run:
+- Create a Level named `L_Test_Inventory`
+- Drag `AInventoryFunctionalTest` into the level
+- Open Session Frontend (Window -> Developer Tools -> Session Frontend)
+- Go to the Automation tab
+- Check your test and hit Start Tests
+
+### 9c. Running test headlessly (CI/CD-friendly)
+We can run tests without opening the Editor. Typically this is called Headless. This is useful when we already have pipeline in place doing auto-build every commit for example. You'd want to have build tested to catch logic / integration errors before ever reaching QAs
+
+You do not use the standard UnrealEditor.exe (which loads the GUI). You use the Command-line version
+
+- Location: [EnginePath]/Engine/Binaries/Win64/UnrealEditor-Cmd.exe
+- It runs significantly faster because it doesn't load the Slate UI, and it can run on servers that don't have a monitor (Headless)
+
+The template: `UnrealEditor-Cmd.exe "C:\Path\To\MyGame.uproject" -ExecCmds="Automation RunTests MyGame.Inventory" -unattended -nopause -testexit="Automation Test Queue Empty" -log -nullrhi`
+
+- `-ExecCmds="Automation RunTests [Name]"`
+    - This runs the specific test we wrote in the previous section (`MyGame.Inventory`)
+    - You can also use `Automation RunAll` to run every test in the project
+    - Note: `RunTests` performs a substring match. `RunTests MyGame` runs all tests starting with "`MyGame`"
+- `-unattended`
+    - Crucial for CI. It suppresses message boxes (e.g., "Do you want to restore assets?"). If a message box pops up on a CI server, the build hangs forever
+- `-nullrhi`
+    - Null Render Hardware Interface
+    - This tells the engine: "Do not try to create a Window or initialize the GPU"
+    - Essential for cloud servers (AWS/Azure) that might not have a GPU attached
+- `-testexit="Automation Test Queue Empty"`
+    - Tells the engine to shut down automatically once the tests are finished. Without this, the process stays open, and your CI job never completes
+- `-log`
+    - Ensures the output is written to the console (stdout) so your CI tool (Jenkins/TeamCity) can capture the text to check for "Success" or "Fail"
+
+**Parsing the result**
+The engine will output a lot of text. To determine if the build passed or failed in your automation script (Python/Batch), you look for specific strings in the log
+
+- Success: Test Passed: [`MyGame.Inventory.AddItem`]
+- Failure: Test Failed: [`MyGame.Inventory.AddItem`]
+
+## 10. Networking
+In Multiplayer games, **Bandwidth is the bottleneck**. You cannot replicate everything every frame
+
+### 10a. Quantization
+Never send a full `float` (4 bytes) if you don't need perfect precision
+
+- A health bar (0-100) doesn't need 32-bit float precision
+- A rotation (0-360) doesn't need 32-bit float precision
+
+In Unreal, we use `NetQuantize`
+
+```cpp {linenos=inline}
+// BAD: Sends 12 bytes (3 x 4 bytes)
+UPROPERTY(Replicated)
+FVector ExactPosition; 
+
+// GOOD: Sends ~6 bytes. Rounds to 2 decimal places.
+// Sufficient for visual effects or non-gameplay critical items.
+UPROPERTY(Replicated)
+FVector_NetQuantize100 ApproximatePosition; 
+
+// BEST: Compressing a float (0.0 to 1.0) into a single Byte (0 to 255)
+// 4x bandwidth savings!
+uint8 ReplicatedAlpha = (uint8)(MyFloat * 255.0f);
+```
+
+### 10b. Custom Struct Serialization (`NetSerialize`)
+By default, replicating a `USTRUCT` replicates every property individually, adding metadata overhead for each field
+
+**The Pro-gamer move**: 
+
+Write a custom NetSerialize function to pack data at the bit-level
+
+```cpp {linenos=inline}
+USTRUCT()
+struct FMyGunData {
+    GENERATED_BODY()
+
+    UPROPERTY()
+    int32 Ammo; // 4 bytes normally
+    
+    UPROPERTY()
+    bool bIsReloading; // 1 byte normally (plus padding)
+
+    // Custom Serialization
+    bool NetSerialize(FArchive& Ar, class UPackageMap* Map, bool& bOutSuccess) {
+        // Write/Read Ammo. 
+        // Optimization: We know max ammo is 100. We only need 7 bits (up to 127).
+        // Standard int is 32 bits. We save 25 bits!
+        Ar.SerializeBits(&Ammo, 7); 
+
+        // Write/Read Bool. Takes exactly 1 bit.
+        Ar.SerializeBits(&bIsReloading, 1);
+
+        bOutSuccess = true;
+        return true;
+    }
+};
+
+// Result: This struct now takes ~1 byte (8 bits) to send over network.
+// Without NetSerialize, it would take ~5-8 bytes.
+```
+
+### 10c. Fast Array Serialization (`FFastArraySerializer`)
+Replicating a standard `TArray` is expensive. If you change one element, UE might check the whole array or send inefficient updates
+
+For arrays that change frequently (Inventory, Active Buffs), use `FFastArraySerializer`. It uses an ID/Dirty-Bit system to only send exactly what changed
+
+**The Setup:**
+1. An Item Struct inheriting `FFastArraySerializerItem`
+2. An Array Struct inheriting `FFastArraySerializer`
+3. The `NetDeltaSerialize` function
+
+```cpp {linenos=inline}
+// 1. The Item
+USTRUCT()
+struct FInventoryItem : public FFastArraySerializerItem {
+    GENERATED_BODY()
+    
+    UPROPERTY()
+    int32 ItemID;
+};
+
+// 2. The Array Manager
+USTRUCT()
+struct FInventoryArray : public FFastArraySerializer {
+    GENERATED_BODY()
+
+    UPROPERTY()
+    TArray<FInventoryItem> Items;
+
+    // Boilerplate to link the array to the serializer
+    bool NetDeltaSerialize(FNetDeltaSerializeInfo& DeltaParms) {
+        return FFastArraySerializer::FastArrayDeltaSerialize<FInventoryItem, FInventoryArray>(Items, DeltaParms, *this);
+    }
+};
+
+// 3. Usage
+void APlayer::AddItem() {
+    FInventoryItem& NewItem = Inventory.Items.AddDefaulted_GetRef();
+    NewItem.ItemID = 50;
+    
+    // CRITICAL: You must mark the item or array as dirty!
+    // This tells the engine "Only replicate this specific index"
+    Inventory.MarkItemDirty(NewItem); 
+}
+```
+
+### 10d. Replication Graph
+
+The standard Unreal replication system works by iterating over **every replicated actor** for **every connected client**
+
+- Complexity: O(N * M) where N = Actors, M = Players
+- In a Battle Royale with 100 players and 50,000 loot items, this kills the server CPU
+
+**What is it?**
+Replication Graph is a high-level filtering system. It acts as a "Broadphase" for networking. Instead of checking every actor, it organizes actors into **Nodes** (usually based on location) and only checks actors inside the nodes relevant to the client
+
+**Why use it?**
+To scale player counts and actor counts beyond standard limits (e.g., Fortnite, Warzone)
+
+- Spatialization: Divides the map into a Grid. If Player A is in Cell [0,0], they don't need to know about a gun in Cell [10,10]
+- Frequency Management: You can tick distant actors less frequently than close actors
+
+**How it works?**
+The node system. You create a custom `UReplicationGraph` class and route actors into specific nodes:
+
+1. Grid Node: For spatial actors (Players, Loot, Vehicles). Divides world into cells
+2. Always Relevant Node: For things everyone must see (GameState, Storm/Zone)
+3. Dormancy Node: For actors that rarely change
+
+**Code example: Routing Actors**:
+```cpp {linenos=inline}
+// MyReplicationGraph.cpp
+
+void UMyReplicationGraph::InitGlobalActorClassSettings()
+{
+    // 1. Create a Grid Node for spatial lookups
+    GridNode = CreateNewNode<UReplicationGraphNode_GridSpatialization2D>();
+    GridNode->CellSize = 10000.0f; // 100 meters per cell
+    AddGlobalGraphNode(GridNode);
+
+    // 2. Create an Always Relevant Node
+    AlwaysRelevantNode = CreateNewNode<UReplicationGraphNode_ActorList>();
+    AddGlobalGraphNode(AlwaysRelevantNode);
+
+    // 3. Define Routing Rules
+    // "If it's a Weapon, put it in the Grid."
+    GlobalActorReplicationInfoMap.SetClassInfo(AWeapon::StaticClass(), { GridNode });
+    
+    // "If it's the GameState, put it in Always Relevant."
+    GlobalActorReplicationInfoMap.SetClassInfo(AGameState::StaticClass(), { AlwaysRelevantNode });
+}
+
+void UMyReplicationGraph::RouteAddNetworkActorToNodes(const FNewReplicatedActorInfo& ActorInfo, FGlobalActorReplicationInfo& GlobalInfo)
+{
+    // This function runs when an Actor spawns.
+    // We look up where it belongs based on the settings above.
+    for (UReplicationGraphNode* Node : GlobalInfo.Settings.RoutingNodes)
+    {
+        Node->NotifyAddNetworkActor(ActorInfo);
+    }
+}
+```
+
+**Issues and Gotchas**
+- Starvation: If the bandwidth limit is hit, RepGraph has to decide what not to send. Sometimes it prioritizes incorrectly, causing nearby enemies to "teleport" or not appear because the graph thought a distant explosion was more important
+- Edge Case Logic: Fast-moving actors (planes/missiles) crossing grid boundaries can sometimes be lost or stutter if the graph update logic lags behind the physics
+- Complexity: You lose the "It just works" nature of standard replication. If you spawn an actor and it doesn't replicate, it's likely because you forgot to add a Routing Rule for its class, so it sits in "Limbo" (no node owns it) lmao
+
+### 10e. Iris, new data-oriented replication system
+Introduced experimentally in UE 5.1 and production-ready in later versions. Iris is a complete rewrite of the underlying replication architecture
+
+**Why use this?**
+Legacy replication is **Object-Oriented** and **Reflection-based**
+
+To replicate a `Health` float, the engine iterates properties via Reflection (slow), compares current value to shadow state (cache miss heavy), and writes to a bitstream.
+
+Iris on the other hand, is data-oriented and descriptor-based
+- It separates the Networking Data from the Game Actor
+- It uses **Quantized State Buffers** internally
+- It supports huge concurrency (multithreading) for replication, which the old system struggled with
+
+**Comparison**
+| Feature | Legacy Replication | Iris Replication |
+| :--- | :--- | :--- |
+| **Architecture** | Actor Channel + Reflection | Replication System + Fragments |
+| **State Tracking** | Shadow States (Deep Copy of Actor) | Dirty Bitmasks & State Buffers |
+| **Filtering** | `IsNetRelevantFor()` (Virtual func) | Filter Fragments (Data-driven) |
+| **Scalability** | Linear degradation | Highly parallelizable |
+| **Bandwidth** | Good, but relies on manual `DOREPLIFETIME` | Automatic delta compression |
+
+**Comparison in code**
+1. Legacy Replication (The "Polling" Model)
+
+In the legacy system, the engine polls your variables. Every tick (defined by NetUpdateFrequency), the engine compares your current variable value against a "Shadow Copy" it saved last frame to see if it changed
+
+```cpp {linenos=inline}
+
+// Header (MyLegacyActor.h)
+
+UCLASS()
+class AMyLegacyActor : public AActor
+{
+    GENERATED_BODY()
+
+public:
+    // 1. Define variables directly in the class
+    UPROPERTY(Replicated)
+    float Health;
+
+    UPROPERTY(Replicated)
+    int32 Ammo;
+
+    // 2. Standard boilerplate override
+    virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+};
+
+// Cpp (MyLegacyActor.cpp)
+
+#include "Net/UnrealNetwork.h"
+
+void AMyLegacyActor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+    Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+    // 3. MACROS. The engine uses these to build a list of properties to check.
+    DOREPLIFETIME(AMyLegacyActor, Health);
+    DOREPLIFETIME(AMyLegacyActor, Ammo);
+}
+
+void AMyLegacyActor::TakeDamage(float Damage)
+{
+    // 4. Just change the value.
+    // The Engine will detect this change AUTOMATICALLY during the next NetUpdate tick
+    // by comparing (CurrentHealth != ShadowHealth).
+    Health -= Damage; 
+}
+```
+Performance Cost (Under the hood): Even if Health didn't change, the CPU does this every update:
+```cpp {linenos=inline}
+// Pseudo-code of Legacy Engine Loop
+for (Property : ReplicatedProps) {
+    if (CurrentValue != ShadowValue) { // <--- Cache miss potential
+        SendToClient();
+        ShadowValue = CurrentValue;
+    }
+}
+```
+
+2. Iris Replication (The "Push" Model)
+In Iris, we group data into a struct (State). The engine does **not** poll individual variables. It waits for **you** to tell it "I modified this chunk of memory"
+
+```cpp {linenos=inline}
+// Header (MyIrisActor.h)
+
+#include "Iris/ReplicationState/ReplicationStateDescriptor.h"
+
+// 1. Define the Data Layout (The Fragment)
+USTRUCT()
+struct FPlayerStatsState
+{
+    GENERATED_BODY()
+
+    UPROPERTY(Replicated)
+    float Health;
+
+    UPROPERTY(Replicated)
+    int32 Ammo;
+};
+
+UCLASS()
+class AMyIrisActor : public AActor
+{
+    GENERATED_BODY()
+
+    // 2. The State Container
+    UPROPERTY(Replicated)
+    FPlayerStatsState PlayerStats;
+
+    // Handle to the registered fragment (for efficiency)
+    UE::Net::FReplicationFragmentHandle StatsHandle;
+
+public:
+    virtual void RegisterReplicationFragments(UE::Net::FFragmentRegistrationContext& Context, UE::Net::EFragmentRegistrationFlags RegistrationFlags) override;
+};
+
+// Cpp (MyIrisActor.cpp)
+
+#include "Iris/ReplicationSystem/ReplicationSystem.h"
+
+void AMyIrisActor::RegisterReplicationFragments(UE::Net::FFragmentRegistrationContext& Context, UE::Net::EFragmentRegistrationFlags RegistrationFlags)
+{
+    // 3. Register the Memory Block
+    // We tell Iris: "Here is a block of memory. Here is the Descriptor (Schema) for it."
+    const auto* Desc = UE::Net::TReplicationStateDescriptor<FPlayerStatsState>::GetDescriptor();
+    
+    // We store the handle so we can mark it dirty later
+    StatsHandle = Context.RegisterReplicationFragment(this, Desc, &PlayerStats);
+}
+
+void AMyIrisActor::TakeDamage(float Damage)
+{
+    // 4. Modify the data
+    PlayerStats.Health -= Damage;
+
+    // 5. EXPLICIT DIRTYING (The "Push")
+    // We must tell Iris that this specific fragment changed.
+    // If we forget this, the client never sees the change.
+    if (auto* RepSys = GetReplicationSystem())
+    {
+        RepSys->MarkDirty(StatsHandle);
+    }
+}
+```
+
+Performance Cost (Under the hood):
+- If Health didn't change, the CPU does... nothing
+- If Health changed, the CPU sees the Dirty Bit is set and copies the memory immediately
+
+```cpp {linenos=inline}
+// Pseudo-code of Iris Engine Loop
+if (FragmentHandle.IsDirty()) { // <--- Bitwise check (Fast)
+    // We know exactly which memory block to send.
+    // No property iteration. No shadow state comparison.
+    SerializeFragment(FragmentPtr); 
+}
+```
+
+**How to use it (Native / "Pure" Iris)**
+You can use Iris in "Compatibility Mode" (where it still reads GetLifetimeReplicatedProps), but to get the performance benefits and remove "baggage," you should use Replication Fragments
+
+1. Setup (`DefaultEngine.ini`)
+```ini
+[SystemSettings]
+net.Iris.Enable=1
+```
+2. The Code (Registering Fragments)
+Instead of defining `DOREPLIFETIME` macros, we register data chunks
+
+```cpp {linenos=inline}
+// The header
+
+#include "Iris/ReplicationState/ReplicationStateDescriptor.h"
+
+USTRUCT()
+struct FMyReplicationState
+{
+    GENERATED_BODY()
+
+    // We define the data layout here. 
+    // Iris will manage this memory block efficiently.
+    
+    UPROPERTY(Replicated)
+    float Health;
+
+    UPROPERTY(Replicated)
+    int32 Ammo;
+};
+
+UCLASS()
+class AMyIrisActor : public AActor
+{
+    GENERATED_BODY()
+
+    // The struct holding our data
+    UPROPERTY(Replicated)
+    FMyReplicationState NetState;
+
+public:
+    // Override this to hook into Iris
+    virtual void RegisterReplicationFragments(UE::Net::FFragmentRegistrationContext& Context, UE::Net::EFragmentRegistrationFlags RegistrationFlags) override;
+};
+
+// The cpp
+
+#include "Iris/ReplicationSystem/ReplicationFragment.h"
+
+// 1. We don't use GetLifetimeReplicatedProps anymore!
+
+void AMyIrisActor::RegisterReplicationFragments(UE::Net::FFragmentRegistrationContext& Context, UE::Net::EFragmentRegistrationFlags RegistrationFlags)
+{
+    // 2. Create a Fragment
+    // A fragment is a "view" into a piece of memory that needs replicating.
+    // We point it to our 'NetState' struct.
+    
+    // Create the descriptor (describes the layout of the struct)
+    const UE::Net::FReplicationStateDescriptor* Desc = UE::Net::TReplicationStateDescriptor<FMyReplicationState>::GetDescriptor();
+
+    // Register the fragment
+    // This tells Iris: "Monitor this memory address using this layout descriptor."
+    Context.RegisterReplicationFragment(this, Desc, &NetState);
+}
+
+// 3. Modifying Data
+void AMyIrisActor::TakeDamage(float Damage)
+{
+    NetState.Health -= Damage;
+
+    // CRITICAL: In pure Iris, we must explicitly mark the state dirty.
+    // (Legacy system did this by comparing values every frame, which was slow).
+    // Iris assumes nothing changed unless you say so.
+    Iris::FReplicationSystem* RepSys = GetReplicationSystem();
+    if (RepSys)
+    {
+        // Mark the 'Health' member of the fragment as dirty
+        RepSys->MarkDirty(this); 
+    }
+}
+```
+In the Legacy system, the `UNetDriver` owns the replication logic. It is tightly coupled to `AActor`
+
+In Iris, the Replication System owns the data
+- You can technically replicate things that are _not_ Actors, as long as you register a Fragment
+- By using `RegisterReplicationFragments`, you bypass the expensive `PreReplication` -> `GetLifetimeReplicatedProps` -> Compare Properties loop of the legacy system. The engine simply looks at the Dirty Bitmask you set and sends that memory chunk
+
+## 11. UE's Multithreading
+### 11a. `std::mutex` / `FCriticalSection`
+The brute-force fix. "I am using this variable, nobody else touch it"
+
+- Pros: Easy to use
+- Cons: Slow. If Thread A has the lock, Thread B goes to sleep (Context Switch). Waking up takes thousands of CPU cycles
+
+```cpp {linenos=inline}
+// UE4/5 Wrapper for mutex
+FCriticalSection MyLock; 
+
+void TakeDamage(int Amount) {
+    // Locks here. If another thread is here, we wait.
+    FScopeLock Lock(&MyLock); 
+    
+    Health -= Amount;
+} // Unlocks automatically when 'Lock' goes out of scope
+```
+
+## 11b. `std::atomic`
+The lightweight fix. Hardware-supported operations that cannot be interrupted
+
+- Pros: Extremely fast (no context switching)
+- Cons: Only works for simple data (int, bool, pointers). You can't make an `atomic<PlayerClass>`
+
+```cpp {linenos=inline}
+#include <atomic>
+
+std::atomic<int> Health;
+
+void TakeDamage(int Amount) {
+    // This is a single CPU instruction. Impossible to interrupt.
+    // No locks needed.
+    Health -= Amount; 
+}
+```
+
+## 11c. Job Systems (Task Graph)
+Creating threads (`std::thread` or `FRunnable`) is expensive
+
+- Each thread takes ~1MB stack memory
+- OS scheduling overhead
+
+**Ideal Approach**: Create a pool of worker threads (one per CPU core) at startup. Break your work into tiny "Tasks" or "Jobs" and feed them to the pool
+
+Unreal Example (`ParallelFor`):
+
+```cpp {linenos=inline}
+// Don't spawn a thread to process 10,000 items. Use the Task Graph
+
+void UpdateParticles() {
+    int32 NumParticles = 10000;
+
+    // Splits the loop into chunks and distributes them to available Worker Threads.
+    // Blocks the main thread until all chunks are done.
+    ParallelFor(NumParticles, [&](int32 Index) {
+        
+        // This code runs on multiple threads at once!
+        Particles[Index].Update();
+        
+    }); // <--- Implicit synchronization barrier here
+}
+```
+
+Unreal Example (`Async` / TaskGraph):
+
+```cpp {linenos=inline}
+// Run on a background thread (Any available worker)
+AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [this]() {
+    
+    HeavyCalculation();
+
+    // Return to Game Thread to update UI (UI is NOT thread-safe!)
+    AsyncTask(ENamedThreads::GameThread, [this]() {
+        UpdateUI();
+    });
+});
+```
+
+# Finding and Fixing Framerate Hitches
+
+## 1. The Tools of the Trade
+Before you fix it, you must see it. Never guess
+
+- Unreal Engine: Unreal Insights (The gold standard) or the in-game command `stat unit` / `stat game`
+- Unity: Unity Profiler and Frame Debugger
+- Graphics: RenderDoc (for inspecting exactly what the GPU drew in a specific frame)
+
+## 2. What to see and search
+When you open a Profiler, you will see a timeline graph. You are looking for **Spikes** (tall bars). Here is exactly what to search for in the call stack when you click on a spike
+
+### 2a. The "Game Logic" Spike (CPU Bound)
+Symptoms: The "Game Thread" bar is huge. The GPU bar is waiting
+Search Keywords: 
+- `Tick`
+- `Blueprint`
+- `Physics`
+- `LineTrace`
+
+What to look for (typically, not always):
+- World Tick Time: If this is high, you have too many actors ticking
+- Blueprint Time: If you see a specific Blueprint function taking 5ms, you found the culprit. It’s likely a heavy loop in a Blueprint
+- PhysX / Chaos: Too many colliding objects. Look for "Complex Collision" being used on moving objects
+- SpawnActor / DestroyActor: Spawning is expensive. If you see this inside a loop, you are killing the CPU
+
+### 2b. The "Garbage Collection" Spike (Memory Bound)
+Symptoms: The game runs smooth, then freezes for 100ms every 10-20 seconds
+Search Keywords: 
+- `GC`
+- `CollectGarbage`
+- `MarkAndSweep`
+- `ReachabilityAnalysis`
+
+What to look for:
+- The "Sawtooth" Graph: If you graph memory usage, it goes up, up, up, then drops instantly (the spike)
+- Cause: You are creating temporary objects (e.g., `NewObject<Bullet>()`) every frame. The GC has to pause the game to clean them up
+
+### 2c. The "Render" Spike (GPU/Draw Call Bound)
+Symptoms: The "Render Thread" or "GPU" bar is high
+Search Keywords: 
+- `BasePass`
+- `ShadowDepths`
+- `Translucency`
+- `DrawCall`
+
+What to look for:
+- Draw Calls (Count): If this is > 2000-3000 (for mobile/mid-range), the CPU is struggling to tell the GPU what to draw
+- ShadowDepths: Dynamic shadows are expensive. If this is high, you have too many dynamic lights casting shadows
+- Translucency: Smoke, glass, water. If you have lots of overlapping transparent particles (Overdraw), this spikes
+
+### 2d. The "Loading" Spike (I/O Bound)
+Symptoms: A spike happens exactly when you open a menu or walk into a new room
+Search Keywords: 
+- `LoadObject`
+- `Serialize`
+- `FAsyncLoading`
+
+Typical cause: Synchronous Loading. The game paused execution to read a file from the hard drive because you referenced an asset that wasn't in memory yet (The "Hard Reference" problem we discussed earlier)
+
+### 3. How to fix
+#### 3a. Object Pooling (Fixes SpawnActor & GC Spikes)
+Instead of  Spawn/Destroy every time a gun is fired:
+
+1. Create 100 bullets at the start of the level. Hide them
+2. When firing: Teleport a hidden bullet to the gun, unhide it
+3. When it hits: Hide it. **Do not destroy it**
+
+```cpp {linenos=inline}
+// Bad
+void Fire() { GetWorld()->SpawnActor<ABullet>(...); }
+
+// Good (Pooling)
+void Fire() {
+    ABullet* b = BulletPool.GetNextAvailable();
+    b->SetActorLocation(MuzzleLoc);
+    b->SetHidden(false);
+    b->Activate();
+}
+```
+
+#### 3b. Amortization (Fixes `Tick` Spikes)
+"Amortization" means spreading the cost over time. If you need to spawn 100 enemies, don't do it in one frame. Spawn 5 enemies per frame for 20 frames
+
+If I see a spike due to a heavy calculation (like pathfinding for a squad), I would time-slice it. Calculate the path for Unit 1 on Frame A, Unit 2 on Frame B, etc.
+
+Here's a simple amortization (splatting) system and the usage that I have made:
+
+```cpp {linenos=inline}
+// Header File (AmortizationSubsystem.h)
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Subsystems/WorldSubsystem.h"
+#include "AmortizationSubsystem.generated.h"
+
+// Define a generic "Job" as a function that takes no args and returns void.
+// We use TFunction so we can pass Lambdas with captured variables.
+using FAmortizedJob = TFunction<void()>;
+
+UCLASS()
+class MYGAME_API UAmortizationSubsystem : public UWorldSubsystem
+{
+    GENERATED_BODY()
+
+public:
+    // 1. The Public API: "Queue this work for later"
+    void QueueJob(FAmortizedJob Job);
+
+    // 2. Configuration: How much time per frame can we spend?
+    // Default: 2 milliseconds (leaving 14ms for the rest of the game at 60fps)
+    float MaxTimePerFrameMS = 2.0f;
+
+protected:
+    // 3. Tick: Process the queue
+    virtual void OnWorldBeginPlay(UWorld& InWorld) override;
+    virtual bool DoesSupportWorldType(const EWorldType::Type WorldType) const override;
+    
+    // We need to hook into the engine's Tick
+    FDelegateHandle TickDelegateHandle;
+    void Tick(UWorld* World, ELevelTick TickType, float DeltaSeconds);
+
+private:
+    // A simple Queue (FIFO - First In, First Out)
+    TQueue<FAmortizedJob> JobQueue;
+};
+
+// Cpp File (AmortizationSubsystem.cpp)
+
+#include "AmortizationSubsystem.h"
+#include "Misc/ScopeLock.h"
+
+void UAmortizationSubsystem::OnWorldBeginPlay(UWorld& InWorld)
+{
+    Super::OnWorldBeginPlay(InWorld);
+
+    // Register a Tick function for this subsystem
+    TickDelegateHandle = FWorldDelegates::OnWorldTickStart.AddUObject(this, &UAmortizationSubsystem::Tick);
+}
+
+bool UAmortizationSubsystem::DoesSupportWorldType(const EWorldType::Type WorldType) const
+{
+    // Only run in Game or PIE (Play In Editor), not in asset previews
+    return WorldType == EWorldType::Game || WorldType == EWorldType::PIE;
+}
+
+void UAmortizationSubsystem::QueueJob(FAmortizedJob Job)
+{
+    JobQueue.Enqueue(MoveTemp(Job));
+}
+
+void UAmortizationSubsystem::Tick(UWorld* World, ELevelTick TickType, float DeltaSeconds)
+{
+    if (JobQueue.IsEmpty())
+    {
+        return;
+    }
+
+    // 1. Start the stopwatch
+    double StartTime = FPlatformTime::Seconds();
+    double MaxTimeSeconds = MaxTimePerFrameMS / 1000.0;
+
+    // 2. Process jobs until we run out of time
+    FAmortizedJob Job;
+    while (!JobQueue.IsEmpty())
+    {
+        // Check time budget
+        double CurrentTime = FPlatformTime::Seconds();
+        if ((CurrentTime - StartTime) > MaxTimeSeconds)
+        {
+            // We ran out of budget! Stop here and resume next frame.
+            break; 
+        }
+
+        // Dequeue and Execute
+        if (JobQueue.Dequeue(Job))
+        {
+            Job();
+        }
+    }
+}
+```
+
+Usage example, spawning high amount of actors
+```cpp {linenos=inline}
+// Naive way
+
+void AZombieSpawner::SpawnArmy()
+{
+    for (int i = 0; i < 500; i++) {
+        GetWorld()->SpawnActor<AZombie>(...); // LAG SPIKE!
+    }
+}
+
+// "Ammortized way"
+
+void AZombieSpawner::SpawnArmy()
+{
+    // Get the Subsystem
+    UAmortizationSubsystem* Amortizer = GetWorld()->GetSubsystem<UAmortizationSubsystem>();
+    if (!Amortizer) return;
+
+    for (int i = 0; i < 500; i++) {
+        
+        // Calculate spawn location here (or capture 'i' to calculate inside)
+        FVector SpawnLoc = GetActorLocation() + FVector(i * 100, 0, 0);
+
+        // Queue the job using a Lambda
+        // [=] captures variables by value (safest for simple types)
+        Amortizer->QueueJob([this, SpawnLoc]() 
+        {
+            // This code runs in the future, spread across multiple frames.
+            // Check if 'this' (Spawner) is still valid before spawning!
+            if (IsValid(this)) 
+            {
+                GetWorld()->SpawnActor<AZombie>(ZombieClass, SpawnLoc, FRotator::ZeroRotator);
+            }
+        });
+    }
+}
+```
+
+#### 3c. LODs & Culling (Fixes `Render` Spikes)
+- LOD (Level of Detail): If an object is far away, switch to a low-poly version
+- Culling: If an object is behind a wall, don't draw it
+- Merge Meshes: If you have a fence made of 50 individual planks, merge them into 1 mesh. This reduces 50 Draw Calls to 1 Draw Call
+
+**Bottom line**: Never guess. Always profile.
+I would reproduce the hitch using a Profiler like Unreal Insights to isolate the bottleneck
+1. If it's on the **Game Thread**, I'd look for expensive `Tick` logic or heavy Blueprint loops. I might move that logic to C++, use a Timer, or implement Object Pooling if it's related to spawning
+2. If it's a **GC Spike**, I'd check if we are allocating too many temporary objects and refactor to reuse memory
+3. If it's on the **Render Thread**, I'd check **Draw Calls** and dynamic shadows. I might suggest merging meshes or baking lighting
+
+
+# Debugging and Crash Analysis
+Writing code is half the job. Fixing it when it explodes is the other half
+
+## 1. Unreal Asserts: `check`, `ensure`, `verify`
+
+Unreal provides 3 main ways to scream when something goes wrong. Knowing the difference saves you from crashing the Production build
+
+### 1a. `check(Condition)`
+- **Behavior:** If Condition is false, **Crash immediately**
+- **Builds:** Active in Editor and Development. **Stripped (Removed)** in Shipping
+- **Use case:** "Logic impossibility." If this happens, the game state is corrupted and we must stop immediately to preserve the callstack
+  - `check(PlayerState != nullptr);`
+
+### 1b. `ensure(Condition)`
+- **Behavior:** If Condition is false, **Log a Callstack** to the console, but **Do NOT Crash**.
+- **Builds:** Active in all builds
+- **Performance:** The first time it fails, it pauses slightly to dump the stack. Subsequent failures are usually silenced
+- **Use case:** "Unexpected but recoverable." Something is wrong, but we can limp along.
+  - `if (ensure(Texture != nullptr)) { Render(Texture); }`
+
+### 1c. `verify(Condition)`
+- **Behavior:** Same as `check` (Crashes on fail).
+- **Builds:** The check remains in **Shipping**, but the crash behavior might vary. Crucially, the *expression inside* is always executed
+- **Use case:** When the check itself performs a necessary action.
+  - `verify(Component->RegisterComponent());` // We need RegisterComponent to run even in Shipping!
+
+## 2. Data Breakpoints (The "God Tier" Tool)
+
+**The Scenario:** You have a variable `PlayerHealth`. Sometime during the frame, it changes from `100` to `-23421`. You have no idea which function touched it
+
+**The Fix:**
+1. Run the game in Rider / Visual Studio
+2. Hit a breakpoint *before* the bug happens
+3. Go to the **Watch** window
+4. Right-click the variable address -> **"Break when value changes"**
+5. Hit Continue
+
+Your IDE will pause execution the **exact nanosecond** that memory address is written to. You will land directly on the line of code causing the bug
+
+## 3. Memory Stomps
+**The Symptom:** You have a class `Player`. The `Health` variable is fine, but the `Ammo` variable next to it contains garbage numbers like `3452816845`
+
+**The Cause:** You likely wrote out of bounds on an array *before* this variable
+```cpp
+int MyArray[5];
+int Ammo = 100;
+
+// Writing to index 5 (which is the 6th slot) overwrites the NEXT variable in memory.
+MyArray[5] = 9999; 
+// Now 'Ammo' is 9999.
+```
+
+**The Fix:**
+- Use `std::vector` or `TArray` with bounds checking (`.at()` or `[]` in debug)
+- Enable **PageHeap** (gflags) on Windows to force a crash immediately when writing out of bounds
+
+## 4. Reading a Call Stack
+
+When the game crashes, look at the Call Stack.
+1. **Ignore the top:** Usually system DLLs (`ntdll.dll`, `kernel32.dll`)
+2. **Find the first "MyGame" line:** This is where your code crashed
+3. **Check for "Inline":** In Release/Shipping, functions are inlined. The call stack might say you are in `Update()`, but the crash actually happened inside a small helper function called by `Update()` that the compiler merged
+4. **Optimized Out:** If the debugger says a variable is "Optimized out," look at the **Registers** or assembly, or add a temporary `UE_LOG` to print the value before the crash
+
+# Game Math
+
+## 1. Vectors: The Basics
+A Vector represents a **Direction** and a **Magnitude** (Length)
+
+- Point: A specific location in space (e.g., (`10, 50, 0`))
+- Vector: The displacement between two points
+
+## 1a. LookAt formula
+To get a vector pointing from **A (You)** to **B (Enemy)**:
+
+$$Vector = Destination - Origin$$
+$$Vector = EnemyPos - PlayerPos$$
+
+## 1b. Normalization
+Often, you only care about the _direction_, not the distance
+
+- Normalize: Keeps the direction but sets the length to 1.
+- Usage: Movement. If you don't normalize, a player moving diagonally (1, 1) moves faster (length ≈≈ 1.41) than a player moving forward (1, 0)
+
+```cpp {linenos=inline}
+FVector MoveDirection = TargetLocation - MyLocation;
+MoveDirection.Normalize(); // Now length is 1.0
+
+// Move at speed 500
+Velocity = MoveDirection * 500.0f;
+```
+
+## 2. The Dot Product
+Used often to detect "facing"
+
+**The Formula:** $A \cdot B = |A| |B| \cos(\theta)$
+
+If vectors A and B are **Normalized** (length 1), the result is simply the **Cosine of the angle** between them
+
+**The Cheat Sheet (Result Range: -1 to 1):**
+- **1.0:** Vectors point in the **exact same** direction
+- **0.0:** Vectors are **Perpendicular** (90 degrees)
+- **-1.0:** Vectors point in **opposite** directions
+
+How do you detect if an enemy is in front of or behind the player?
+```cpp {linenos=inline}
+// 1. Get the vector from Player to Enemy
+FVector ToEnemy = EnemyLoc - PlayerLoc;
+ToEnemy.Normalize();
+
+// 2. Get Player's Forward Vector (Normalized by default)
+FVector PlayerForward = GetActorForwardVector();
+
+// 3. Dot Product
+float DotResult = FVector::DotProduct(PlayerForward, ToEnemy);
+
+if (DotResult > 0.0f) {
+    // Enemy is In Front (roughly)
+    
+    if (DotResult > 0.9f) {
+        // Enemy is directly in front (within narrow cone)
+    }
+} 
+else {
+    // Enemy is Behind
+}
+```
+
+## 3. The Cross Product
+Used often to find "axis"
+
+The concept: Takes two vectors and returns a **third vector** that is **perpendicular** (90 degrees) to both
+
+
+**Usage:**:
+
+1. **Finding "Right":** If you have `Forward` and `Up`, Cross Product gives you `Right`
+2. **Surface Normals:** If you have a triangle (3 points), you can calculate the edges, Cross Product them, and get the direction the face is pointing (Lighting/Physics)
+3. **Turret Rotation:** To decide if a tank turret should turn Left or Right to face a target
+
+Say we'd like to have a Tank Turret turning
+```cpp {linenos=inline}
+FVector Forward = Turret->GetForwardVector();
+FVector ToTarget = (TargetLoc - TurretLoc).GetSafeNormal();
+
+// Cross Product returns a Vector (Up or Down relative to the tank)
+FVector Cross = FVector::CrossProduct(Forward, ToTarget);
+
+// Assuming Z is Up:
+if (Cross.Z > 0) {
+    // Turn Right
+} else {
+    // Turn Left
+}
+```
+
+## 4. Interpolation (Lerp)
+
+**Linear Interpolation** blends between two values based on an Alpha ($t$) between 0 and 1.
+
+**Formula:** $Result = A + (B - A) * t$
+
+**BE CAREFUL THOUGH, DON'T EVER MAKE SOMETHING INTERPOLATED IN A FRAME-DEPENDENT WAY**
+```cpp {linenos=inline}
+// BAD: Framerate Dependent
+// If FPS is 60, this runs 60 times. If FPS is 30, it runs 30 times.
+// The object moves at different speeds on different computers.
+CurrentPos = FMath::Lerp(CurrentPos, TargetPos, 0.1f); 
+```
+
+**Time Corrected**:
+```cpp {linenos=inline}
+// GOOD: Uses DeltaTime
+// FInterpTo calculates the correct 't' based on time passed.
+CurrentPos = FMath::FInterpTo(CurrentPos, TargetPos, DeltaTime, InterpSpeed);
+```
+
+## 5. Quaternion vs Euler Angles
+
+You typically don't need to know the complex imaginary number math behind Quaternions ($i^2 = j^2 = k^2 = ijk = -1$). You need to know **why Euler angles fail** and **how to use Quaternions to fix it**
+
+### 5a. Euler Angles (`FRotator`)
+Euler angles represent rotation as three separate values applied in a specific order: **Roll (X), Pitch (Y), and Yaw (Z)**
+
+- **Pros:** Human-readable. "Pitch 90" means looking straight up
+- **Cons:** **Gimbal Lock** and messy interpolation
+
+**The Problem: Gimbal Lock**
+
+Imagine a gyroscope with three rings (gimbals)
+1.  You rotate the outer ring (Yaw)
+2.  You rotate the middle ring (Pitch) by **90 degrees** 
+3.  Now, the inner ring (Roll) is physically aligned with the outer ring (Yaw) 
+
+**Result:** Rotating "Roll" and rotating "Yaw" now spin the object on the **exact same axis**.  You have lost a degree of freedom. You can no longer rotate left/right
+
+If you try to interpolate Euler angles near 90 degrees pitch, the camera often flips out or spins wildly because the math breaks down
+
+### 5b. Quaternions (`FQuat`)
+A Quaternion uses 4 numbers (X, Y, Z, W) to represent a rotation around a specific 3D axis
+
+
+- **Pros:**
+    - **No Gimbal Lock:** It doesn't rely on sequential axes
+    - **Shortest Path:** When rotating from A to B, Quaternions always take the shortest arc. Euler angles might take a weird, wobbly path
+    - **Performance:** Multiplying Quaternions is computationally cheaper for the CPU than calculating sine/cosine for three Euler angles
+- **Cons:** Impossible to visualize (e.g., `X=0.2, Y=0.5, Z=0.1, W=0.8` means nothing to a human)
+
+### 5c. Code example
+Say You want a turret to smoothly rotate to face the player
+
+**The "Bad" Way (Euler/FRotator):**
+
+Using `RInterpTo` (which uses Euler math) works for simple things, but if the turret has to look straight up or flip upside down, it will jitter or take a long path
+
+**The "Pro-gamer" Way (Quaternion/FQuat):**
+
+We use **SLERP** (Spherical Linear Interpolation). This guarantees the smoothest, shortest path between two rotations
+
+```cpp {linenos=inline}
+void ATurret::Tick(float DeltaTime)
+{
+    // 1. Where am I looking now? (Convert Euler to Quat)
+    FQuat CurrentQuat = GetActorQuat();
+
+    // 2. Where do I WANT to look?
+    FVector DirectionToTarget = (Target->GetActorLocation() - GetActorLocation()).GetSafeNormal();
+    
+    // Create a Quaternion from a Direction Vector
+    // (This is much safer than MakeRotFromX)
+    FQuat TargetQuat = DirectionToTarget.ToOrientationQuat();
+
+    // 3. Interpolate (SLERP)
+    // Slerp takes (Start, End, Alpha). 
+    // Alpha needs to be 0.0 to 1.0. 
+    // We use a constant speed trick here for frame-rate independence.
+    float RotationSpeed = 5.0f;
+    FQuat NewQuat = FQuat::Slerp(CurrentQuat, TargetQuat, RotationSpeed * DeltaTime);
+
+    // 4. Apply Rotation
+    SetActorRotation(NewQuat);
+}
+```
+
+Or you'd like to combine rotations. Say you have a spaceship, you'd like to apply a "Roll" rotation based on input, relative to its current rotation
+
+**The "Bad" Way (Euler Addition):**
+
+```cpp {linenos=inline}
+// Adding Euler angles is dangerous because order matters.
+// Doing this might accidentally affect Pitch/Yaw due to axis coupling.
+FRotator Current = GetActorRotation();
+Current.Roll += 5.0f; 
+SetActorRotation(Current);
+```
+
+**The "Pro-gamer" Way (Quaternion Multiplication):**
+
+In Quaternion math, **Multiplication = Addition**
+To apply rotation B to rotation A, you multiply them: `Result = B * A`
+*Note: Order matters! `Parent * Child` vs `Local * World`*
+
+```cpp {linenos=inline}
+void ASpaceship::AddRollInput(float Val)
+{
+    // 1. Create a Quaternion representing ONLY the new roll
+    // Axis: X (Forward), Angle: Val (converted to Radians)
+    float AngleRadians = FMath::DegreesToRadians(Val);
+    FQuat RollDelta(FVector::ForwardVector, AngleRadians);
+
+    // 2. Get current rotation
+    FQuat CurrentQuat = GetActorQuat();
+
+    // 3. Combine them
+    // Multiplying (New * Old) applies the rotation in Local Space.
+    // Multiplying (Old * New) applies it in World Space.
+    FQuat NewQuat = CurrentQuat * RollDelta; 
+
+    // 4. Apply
+    SetActorRotation(NewQuat);
+}
+```
+
+###  5d. Misc things that could caught you off-guard and conclusion
+- **`FRotator`:** Used in the Editor (Details Panel) and Blueprints because it's easy to read
+- **`FQuat`:** Used by the Physics Engine (PhysX/Chaos) and the Renderer internally
+- **Conversion:**
+    - `MyRotator.Quaternion()` -> Returns `FQuat`
+    - `MyQuat.Rotator()` -> Returns `FRotator`
+
+So, when to use `FQuat`, over `FRotator`?
+
+Prefer `FRotator` for UI, logging, and simple level placement. However, for any runtime logic involving interpolation (like a homing missile or camera smoothing) or combining multiple rotations (like a tank turret on a moving hull), then I convert to `FQuat` to avoid Gimbal Lock and ensure smooth SLERPing
+
+## 6. Distance Squared
+Calculating distance requires a Square Root (`sqrt`), which is computationally expensive
+
+**Formula:** $Distance = \sqrt{(x_2-x_1)^2 + (y_2-y_1)^2}$
+
+**Optimization:**
+If you just want to check "Is Player within 10 meters?", you don't need the exact distance. You can compare the **Squared Distance**
+
+
+**Code Example:**
+```cpp {linenos=inline}
+float Range = 1000.0f; // 10 meters
+float RangeSq = Range * Range; // 1,000,000
+
+// DistSquared is much faster than Dist (No Sqrt)
+float DistSq = FVector::DistSquared(PlayerLoc, EnemyLoc);
+
+if (DistSq < RangeSq) {
+    // Player is in range
+}
+```
+
+# Modular project example
+
+Unfortunately, the world runs in OOP. To get a job, you have to know and willing to do OOP. This means you have to deal with abstractions and bad decisions that comes with an attempt to "simplify" things initially
+
+Like they said, "The road to hell is paved with good intentions"
+
+But anyway, this architecture implemented in Unreal is what gets me through to Stairway Games. I won't share the code (it's on my private repo), but the explanation is here
+
+> **Relevant source files**
+>
+> - [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp)
+> - [Source/StairwayFishingGameCore/Private/PlayerController/PlayerController_StairwayFishingGamePlayerController.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/PlayerController/PlayerController_StairwayFishingGamePlayerController.cpp)
+> - [Source/VAGameplayMessaging/Private/GameInstanceSubsystem/VAGameplayMessagingSubsystem.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/VAGameplayMessaging/Private/GameInstanceSubsystem/VAGameplayMessagingSubsystem.cpp)
+> - [Source/FishingGameplayTags/Public/FishingTags.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingGameplayTags/Public/FishingTags.h)
+> - [Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp)
+> - [Source/FishingFeature/Private/Actor/Actor_FishingRod.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_FishingRod.cpp)
+> - [Source/FishingFeature/Private/Actor/Actor_Fish.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_Fish.cpp)
+> - [Source/FishingFeature/Private/Actor/Actor_FishSpawnArea.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_FishSpawnArea.cpp)
+> - [Source/StairwayFishingGameCore/Private/Pawn/Pawn_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/Pawn/Pawn_StairwayFishingGame.cpp)
+
+## Home
+
+### Introduction
+
+I built this Unreal Fishing Test project to implement a modular, event-driven fishing gameplay system. I centered the core architecture around the `UActorComponent_FishingComponent`, which acts as the primary logic controller for all fishing-related actions. I decoupled the system by using a `UVAGameplayMessagingSubsystem` and `FGameplayTag` for state management and event communication, allowing different parts of the system (UI, animation, game logic) to react to events without direct dependencies.
+
+The gameplay loop involves player input for casting, a timed waiting period, and reeling in a catch. I created distinct actors for the fishing rod, the fish, and spawn areas, each with its own configurable behavior driven by `UDataAsset` instances. This data-driven approach allows me to tune parameters like cast distance, fish behavior, and spawn rates without altering code. I managed high-level game states, such as transitioning from fishing to displaying the caught fish, via the `AGameModeBase_StairwayFishingGame`, which handles camera transitions and player input modes.
+
+### System Architecture
+
+I composed the fishing system of several key classes that interact to create the gameplay experience. The `UActorComponent_FishingComponent` is the central orchestrator, attached to the player pawn. It processes input, manages the fishing state machine, and communicates with other actors and systems.
+
+Sources: [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp), [Source/StairwayFishingGameCore/Private/PlayerController/PlayerController_StairwayFishingGamePlayerController.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/PlayerController/PlayerController_StairwayFishingGamePlayerController.cpp)
+
+```mermaid
+classDiagram
+    direction TD
+    class APawn_StairwayFishingGame
+    class IPlayerActionInputInterface {
+        <<Interface>>
+    }
+    class APlayerController_StairwayFishingGamePlayerController {
+        +UInputMappingContext* DefaultInputMappingContext
+        +UInputAction* CastingInputAction
+        +FOnPlayerActionInput OnCastStartedDelegate
+        +FOnPlayerActionInput OnCastTriggeredDelegate
+        +FOnPlayerActionInput OnCastCompletedDelegate
+        +OnCastStarted()
+        +OnCastTriggered()
+        +OnCastFinished()
+    }
+
+    class UActorComponent_FishingComponent {
+        -FGameplayTag CurrentFishingState
+        -ICatcherInterface* CurrentCatcher
+        -ICatchableInterface* CurrentCatchable
+        +OnCastAction()
+        +OnCastActionEnded()
+        +ReelBack()
+        +AttemptGetNearestCatchable()
+    }
+
+    class AActor_FishingRod {
+        +UStaticMeshComponent* FishingRodMeshComponent
+        +UStaticMeshComponent* BobberMeshComponent
+        +Throw(FVector InCastLocation)
+        +ReelBack()
+    }
+
+    class AActor_Fish {
+        -bool bBeingTargeted
+        +ReeledIn(FVector RodLocation)
+        +Escape()
+        +WanderWithinBoundingBox()
+    }
+
+    class AActor_FishSpawnArea {
+        +UBoxComponent* SpawnAreaBox
+        +RequestLoadFishAssetSoftClass()
+        +SpawnFishes()
+    }
+
+    class AGameModeBase_StairwayFishingGame {
+        +OnFishingGameLoopStateChanged(FGameplayTag)
+        +TriggerScreenFadeInOut()
+    }
+
+    class UVAGameplayMessagingSubsystem {
+        +BroadcastMessage(FGameplayTag, FVAAnyUnreal)
+        +RegisterNewMember(FGameplayTagContainer, listener)
+    }
+
+    class FFishingTags {
+        +FGameplayTag Messaging_Fishing_Notify_Throw
+        +FGameplayTag FishingComponent_State_Idling
+        +FGameplayTag FishingGameLoopState_Fishing
+    }
+
+    APlayerController_StairwayFishingGamePlayerController --|> IPlayerActionInputInterface
+    UActorComponent_FishingComponent ..> APlayerController_StairwayFishingGamePlayerController : Binds to delegates
+    APawn_StairwayFishingGame "1" *-- "1" UActorComponent_FishingComponent : "component"
+    UActorComponent_FishingComponent ..> AActor_FishingRod : "controls"
+    UActorComponent_FishingComponent ..> AActor_Fish : "catches"
+    UActorComponent_FishingComponent ..> UVAGameplayMessagingSubsystem : "uses"
+    AGameModeBase_StairwayFishingGame ..> UVAGameplayMessagingSubsystem : "uses"
+    AActor_FishSpawnArea ..> AActor_Fish : "spawns"
+    AGameModeBase_StairwayFishingGame ..> APawn_StairwayFishingGame : "manages"
+    UVAGameplayMessagingSubsystem ..> FFishingTags : "uses tags for channels"
+    UActorComponent_FishingComponent ..> FFishingTags : "uses tags for state"
+```
+This diagram illustrates the primary classes and their relationships. The `PlayerController` captures input and invokes delegates that the `FishingComponent` listens to. The `FishingComponent` then drives the behavior of the `FishingRod` and interacts with `Fish` actors, which are spawned by the `FishSpawnArea`. I routed all major state changes and events via the `VAGameplayMessagingSubsystem` using channels defined in `FFishingTags`.
+
+Sources: [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp), [Source/StairwayFishingGameCore/Public/PlayerController/PlayerController_StairwayFishingGamePlayerController.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Public/PlayerController/PlayerController_StairwayFishingGamePlayerController.h), [Source/FishingFeature/Public/Actor/Actor_FishSpawnArea.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Public/Actor/Actor_FishSpawnArea.h), [Source/VAGameplayMessaging/Private/GameInstanceSubsystem/VAGameplayMessagingSubsystem.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/VAGameplayMessaging/Private/GameInstanceSubsystem/VAGameplayMessagingSubsystem.cpp), [Source/FishingGameplayTags/Public/FishingTags.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingGameplayTags/Public/FishingTags.h)
+
+### Core Gameplay Loop: Casting and Catching
+
+I designed the fishing process as a multi-stage sequence initiated by the player and managed by the `UActorComponent_FishingComponent`. It flows from input capture, through casting and waiting, to finally reeling in a fish.
+
+#### Input Handling
+
+Player input is the entry point for the fishing mechanic. I used the `APlayerController_StairwayFishingGamePlayerController` to bind hardware input to gameplay actions.
+
+1.  On `BeginPlay`, the controller maps the `DefaultInputMappingContext`.
+2.  The `CastingInputAction` is bound to three separate trigger events: `Started`, `Triggered`, and `Completed`.
+3.  Each event calls a corresponding handler (`OnCastStarted`, `OnCastTriggered`, `OnCastFinished`), which in turn executes a public delegate (`OnCastStartedDelegate`, etc.).
+4.  The `UActorComponent_FishingComponent` binds its own functions (`OnCastAction`, `OnCastActionEnded`) to these delegates to initiate and conclude the fishing actions.
+
+Sources: [Source/StairwayFishingGameCore/Private/PlayerController/PlayerController_StairwayFishingGamePlayerController.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/PlayerController/PlayerController_StairwayFishingGamePlayerController.cpp), [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp)
+
+```mermaid
+sequenceDiagram
+    participant Player
+    participant PC as APlayerController
+    participant FC as UActorComponent_FishingComponent
+    participant UI
+
+    Player->>PC: Press and Hold Cast Button
+    PC->>PC: OnCastStarted()
+    PC-->>FC: OnCastStartedDelegate.Execute()
+    FC->>FC: OnCastAction(elapsedTime)
+    FC->>FC: ToggleDecalVisibility(true)
+    loop While Button is Held
+        PC->>PC: OnCastTriggered()
+        PC-->>FC: OnCastTriggeredDelegate.Execute()
+        FC->>FC: OnCastAction(elapsedTime)
+        FC->>FC: DetermineCastLocation(elapsedTime)
+        FC-->>UI: BroadcastUIMessage(progress)
+    end
+    Player->>PC: Release Cast Button
+    PC->>PC: OnCastFinished()
+    PC-->>FC: OnCastCompletedDelegate.Execute()
+    FC->>FC: OnCastActionEnded()
+```
+This sequence shows how I translated player input into continuous updates for the casting power and visual feedback, culminating in the final cast action when the input is released.
+
+#### The Fishing Sequence
+
+Once the cast is initiated by `OnCastActionEnded`, a sequence of events involving animations, timelines, and messaging occurs to simulate the fishing process.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant FC as FishingComponent
+    participant GMS as VAGameplayMessagingSubsystem
+    participant Anim as AnimInstance
+    participant Rod as AActor_FishingRod
+    participant Fish as AActor_Fish
+    participant GM as GameMode
+
+    FC->>GMS: BroadcastMessage(AnimInstance_State_Throwing)
+    GMS-->>Anim: OnGameplayMessageReceived
+    Anim->>Anim: Play Throw Montage
+    Note right of Anim: Montage contains Anim Notifies
+    Anim->>GMS: BroadcastMessage(Notify_Throw)
+    GMS-->>FC: OnThrowNotifyMessageReceived
+    FC->>Rod: Throw(CastLocation)
+    Rod->>Rod: ThrowReelInTimeline.PlayFromStart()
+    Note over Rod: Animates bobber to water
+    Rod-->>FC: CatchableLandsOnWaterDelegate.Execute()
+    FC->>FC: OnBobberLandsOnWater()
+    FC->>FC: AttemptGetNearestCatchable()
+    FC->>Fish: ReeledIn(RodLocation)
+    Fish->>Fish: ReeledInTimeline.PlayFromStart()
+    Note over Fish: Animates fish towards bobber
+    FC->>FC: StartWaitingForFishTimer()
+    FC-->>FC: CurrentFishingState = WaitingForFish
+    
+    alt Player Reels In Successfully
+        Note over FC: Timer completes, player reels
+        FC->>GMS: BroadcastMessage(AnimInstance_State_Reeling_In)
+        GMS-->>Anim: OnGameplayMessageReceived
+        Anim->>Anim: Play Reel In Montage
+        Anim->>GMS: BroadcastMessage(Notify_ReelDone)
+        GMS-->>FC: OnReelDoneNotifyMessageReceived
+        FC->>GMS: BroadcastMessage(GameState_StateChange, ShowFish)
+        GMS-->>GM: OnGameplayMessageReceived
+        GM->>GM: OnFishingGameLoopStateChanged(ShowFish)
+    else Player Fails or Releases Early
+        FC->>Fish: Escape()
+        Fish->>Fish: EscapeTimeline.PlayFromStart()
+        Fish-->>Fish: bBeingTargeted = false
+        FC->>FC: ReelBack()
+        FC-->>FC: ResetStateAndTimer()
+    end
+```
+This diagram details the event-driven flow of the fishing action. The `FishingComponent` initiates state changes by sending messages, which are received by the Animation Instance. The animation, in turn, sends notify messages back at key moments, driving the logic forward without the `FishingComponent` needing to know about animation specifics.
+
+Sources: [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp), [Source/FishingFeature/Private/Actor/Actor_FishingRod.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_FishingRod.cpp), [Source/FishingFeature/Private/Actor/Actor_Fish.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_Fish.cpp), [Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp)
+
+### Key Components and Actors
+
+#### `UActorComponent_FishingComponent`
+
+This is the central class of the feature, responsible for managing the entire fishing lifecycle.
+
+| Responsibility | Description |
+| :--- | :--- |
+| **State Management** | Uses `FGameplayTag` to track the current state (e.g., `Idling`, `Throwing`, `WaitingForFish`). |
+| **Input Binding** | Binds to delegates from the `PlayerController` to react to player input. |
+| **Actor Spawning** | Asynchronously loads and spawns the `AActor_FishingRod`. |
+| **Logic Orchestration** | Calls functions on the `FishingRod` and `Fish` actors at appropriate times. |
+| **Event Handling** | Listens for messages (e.g., animation notifies) from the `VAGameplayMessagingSubsystem`. |
+| **Physics/Tracing** | Performs line traces to find a valid water surface for casting and sphere traces to find nearby fish. |
+
+I made the component's behavior configurable through `UDataAsset_FishingComponentConfig`, which defines properties like cast range, timing, and socket names for attaching the rod.
+
+Sources: [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp)
+
+#### `AActor_FishingRod`
+
+This actor is the visual representation of the fishing rod and bobber.
+
+-   **Components**: It consists of a `FishingRodMeshComponent` (the rod) and a `BobberMeshComponent`. I attached a `CatchableAttachPoint` to the bobber for holding the fish.
+-   **Animation**: It does not use skeletal animation. Instead, I used `FTimeline` objects driven by `UCurveFloat` assets to interpolate the bobber's position when `Throw()` and `ReelBack()` are called. This provides a simple procedural animation.
+
+Sources: [Source/FishingFeature/Private/Actor/Actor_FishingRod.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_FishingRod.cpp)
+
+#### `AActor_Fish`
+
+Represents a single fish that can be caught.
+
+-   **AI Behavior**: When not targeted, the fish performs a simple `WanderWithinBoundingBox` behavior, moving towards random points within the confines of its `AActor_FishSpawnArea`.
+-   **State**: A boolean `bBeingTargeted` flag controls whether the fish is wandering or being interacted with.
+-   **Interaction**: Implements the `ICatchableInterface`. The `ReeledIn` function triggers a timeline to move the fish towards the bobber. The `Escape` function triggers a different timeline to return it to its initial location.
+
+Sources: [Source/FishingFeature/Private/Actor/Actor_Fish.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_Fish.cpp)
+
+#### `AActor_FishSpawnArea`
+
+This actor defines a volume in the world where fish can be spawned and exist.
+
+-   **Spawning Logic**: On `BeginPlay`, it asynchronously requests to load the fish actor's class from a `TSoftClassPtr` defined in its config data asset.
+-   **Async Loading**: I used `UAssetManager::GetStreamableManager().RequestAsyncLoad` to prevent hitches from loading the fish asset.
+-   **Volume**: Once the asset is loaded, it spawns a configured number of fish at random locations within its `UBoxComponent` bounds. It also passes its bounds to each fish so they know the area within which they can wander.
+
+Sources: [Source/FishingFeature/Private/Actor/Actor_FishSpawnArea.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_FishSpawnArea.cpp)
+
+### State and Event Management
+
+I relied on a decoupled messaging system and gameplay tags for managing state and communication.
+
+#### Gameplay Tags (`FFishingTags`)
+
+I created a central singleton class, `FFishingTags`, to define all gameplay tags used by the system. This prevents errors from typos and provides a single source of truth for all tags.
+
+| Tag Category | Example | Purpose |
+| :--- | :--- | :--- |
+| **Messaging Channel** | `Messaging.Fishing.Notify.Throw` | Used as a channel ID for broadcasting and listening to events. |
+| **Anim Instance State** | `AnimInstance.Fishing.State.Throwing` | Sent to the Animation Blueprint to trigger a specific animation state. |
+| **Component State** | `FishingComponent.State.WaitingForFish` | Used internally by `FishingComponent` to manage its state machine. |
+| **Game Loop State** | `FishingGameLoopState.ShowFish` | A high-level state managed by the Game Mode. |
+
+Sources: [Source/FishingGameplayTags/Public/FishingTags.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingGameplayTags/Public/FishingTags.h)
+
+#### Game Mode State Transitions
+
+The `AGameModeBase_StairwayFishingGame` handles high-level game states that affect the entire experience, such as switching between active gameplay and a cinematic view of a caught fish.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Fishing
+    Fishing: Player can cast and fish
+    ShowFish: Player input disabled, shows caught fish
+
+    Fishing --> ShowFish: On successful catch
+    ShowFish --> Fishing: On returning to gameplay
+```
+This state transition is handled in `OnFishingGameLoopStateChanged`. When the state changes, this function:
+1.  Toggles player input between `FInputModeGameOnly` and `FInputModeUIOnly`.
+2.  Initiates a camera fade-out.
+3.  Switches the active camera on the pawn (which implements `ISwitchableFishingViewInterface`).
+4.  Broadcasts a `Messaging_GameMode_StateChangeFinish` message.
+5.  Initiates a camera fade-in.
+
+Sources: [Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp), [Source/StairwayFishingGameCore/Private/Pawn/Pawn_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/Pawn/Pawn_StairwayFishingGame.cpp)
+
+### Conclusion
+
+I built this fishing system to be modular and component-based. I focused on decoupling the messaging system for communication. The data-driven configuration via `UDataAsset`s allows me to tweak and balance the gameplay without code changes. I separated concerns—input handling in the `PlayerController`, core logic in the `ActorComponent`, and visual representation in various `Actor` classes—to keep the system maintainable.
+
+---
+
+### Getting Started
+
+#### Related Pages
+
+
+> **Relevant source files**
+>
+> - [Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp)
+> - [Source/FishingFeature/Private/Actor/Actor_FishSpawnArea.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_FishSpawnArea.cpp)
+> - [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp)
+> - [Source/FishingFeature/Private/Actor/Actor_FishingRod.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_FishingRod.cpp)
+> - [Source/StairwayFishingGameCore/Private/PlayerController/PlayerController_StairwayFishingGamePlayerController.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/PlayerController/PlayerController_StairwayFishingGamePlayerController.cpp)
+> - [Source/StairwayFishingGameCore/Private/Pawn/Pawn_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/Pawn/Pawn_StairwayFishingGame.cpp)
+> - [Source/FishingFeature/Private/Actor/Actor_Fish.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_Fish.cpp)
+> - [Source/VAGameplayMessaging/Private/GameInstanceSubsystem/VAGameplayMessagingSubsystem.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/VAGameplayMessaging/Private/GameInstanceSubsystem/VAGameplayMessagingSubsystem.cpp)
+> - [Source/FishingGameplayTags/Public/FishingTags.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingGameplayTags/Public/FishingTags.h)
+> - [Source/FishingFeatureEditor/Private/DetailCustomization/DetailCustomization_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeatureEditor/Private/DetailCustomization/DetailCustomization_FishingComponent.cpp)
+
+## Getting Started
+
+Here is a technical overview of the fishing gameplay system I created for the Unreal-Fishing-Test project. I designed the system as a self-contained feature to handle all aspects of fishing, from casting a line to catching a fish. I built it upon several core components, a data-driven configuration approach using Data Assets, and a decoupled messaging system for communication between different parts of the game. I encapsulated the core logic within an Actor Component, making it portable and easy to attach to any player character.
+
+My architecture emphasizes separation of concerns: player input, fishing logic, actor behaviors (fish, fishing rod), and game state transitions are all handled by distinct classes. I facilitated communication via the `VAGameplayMessagingSubsystem`, which uses `FGameplayTag` as channels to broadcast and listen for events, avoiding hard references between components. This guide details the key components, the overall gameplay flow, the state management system, and the configuration options I made available.
+
+### Core Architecture and Components
+
+I composed the fishing system of several key classes that work together to create the full gameplay experience. The main components are the Player Pawn, the Fishing Component, the Fishing Rod, the Fish, and the Fish Spawn Area.
+
+Sources: [Source/StairwayFishingGameCore/Private/Pawn/Pawn_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/Pawn/Pawn_StairwayFishingGame.cpp), [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp), [Source/FishingFeature/Private/Actor/Actor_FishingRod.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_FishingRod.cpp), [Source/FishingFeature/Private/Actor/Actor_Fish.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_Fish.cpp), [Source/FishingFeature/Private/Actor/Actor_FishSpawnArea.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_FishSpawnArea.cpp)
+
+```mermaid
+classDiagram
+    direction TD
+
+    class APawn_StairwayFishingGame {
+        +UActorComponent_FishingComponent* FishingComponent
+        +UCameraComponent* Camera
+        +UCameraComponent* ShowFishCamera
+        +SetFishingView(FGameplayTag)
+    }
+
+    class UActorComponent_FishingComponent {
+        -ICatcherInterface* CurrentCatcher
+        -ICatchableInterface* CurrentCatchable
+        -FGameplayTag CurrentFishingState
+        +OnCastAction(float)
+        +OnCastActionEnded(float)
+        +AttemptToCast(FVector)
+        +AttemptGetNearestCatchable()
+        +ReelInCurrentCatchable()
+    }
+
+    class ICatcherInterface {
+        <<Interface>>
+    }
+    class AActor_FishingRod {
+        +UStaticMeshComponent* BobberMeshComponent
+        +Throw(FVector)
+        +ReelBack()
+    }
+
+    class ICatchableInterface {
+        <<Interface>>
+    }
+    class AActor_Fish {
+        +ReeledIn(FVector)
+        +Escape()
+        +WanderWithinBoundingBox(float)
+    }
+
+    class AActor_FishSpawnArea {
+        +UBoxComponent* SpawnAreaBox
+        +SpawnFishes(...)
+    }
+
+    class IPlayerActionInputInterface {
+        <<Interface>>
+    }
+    class APlayerController_StairwayFishingGamePlayerController {
+        +UInputAction* CastingInputAction
+        +OnCastActionStarted()
+        +OnCastActionTriggered()
+        +OnCastActionCompleted()
+    }
+
+    APawn_StairwayFishingGame "1" *-- "1" UActorComponent_FishingComponent : contains
+    APlayerController_StairwayFishingGamePlayerController ..> UActorComponent_FishingComponent : provides input
+    UActorComponent_FishingComponent ..> AActor_FishingRod : controls
+    UActorComponent_FishingComponent ..> AActor_Fish : catches
+    AActor_FishSpawnArea ..> AActor_Fish : spawns
+    AActor_FishingRod --|> ICatcherInterface
+    AActor_Fish --|> ICatchableInterface
+    APlayerController_StairwayFishingGamePlayerController --|> IPlayerActionInputInterface
+```
+This diagram illustrates the primary classes and their relationships within the fishing system.
+
+Sources: [Source/StairwayFishingGameCore/Public/PlayerController/PlayerController_StairwayFishingGamePlayerController.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Public/PlayerController/PlayerController_StairwayFishingGamePlayerController.h), [Source/StairwayFishingGameCore/Private/Pawn/Pawn_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/Pawn/Pawn_StairwayFishingGame.cpp), [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp), [Source/FishingFeature/Public/Actor/Actor_FishSpawnArea.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Public/Actor/Actor_FishSpawnArea.h)
+
+#### Key Components
+
+| Component                                                          | Description                                                                                                                                                                                               | Source File                                                                                                                                      |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `APawn_StairwayFishingGame`                                        | The player character pawn. It hosts the `UActorComponent_FishingComponent` and manages the active camera between the main gameplay view and the "show fish" view.                                           | `Pawn/Pawn_StairwayFishingGame.h`                                                                                                                |
+| `UActorComponent_FishingComponent`                                 | The central logic hub for the fishing mechanic. It manages states, handles player input for casting, detects catchable fish, and controls the fishing rod and caught fish.                                   | `ActorComponent/ActorComponent_FishingComponent.h`                                                                                               |
+| `APlayerController_StairwayFishingGamePlayerController`            | Implements `IPlayerActionInputInterface` to handle raw input from Unreal's Enhanced Input system. It binds the `CastingInputAction` and broadcasts delegates for `Started`, `Triggered`, and `Completed` events. | `PlayerController/PlayerController_StairwayFishingGamePlayerController.h`                                                                        |
+| `AActor_FishSpawnArea`                                             | An actor responsible for spawning `AActor_Fish` instances within a defined `UBoxComponent` volume at the start of the game. It asynchronously loads the fish asset before spawning.                         | `Actor/Actor_FishSpawnArea.h`                                                                                                                    |
+| `AActor_Fish`                                                      | Represents a catchable fish. It implements the `ICatchableInterface`, manages its own wandering movement within its spawn area, and handles being reeled in or escaping.                                      | `Actor/Actor_Fish.h`                                                                                                                             |
+| `AActor_FishingRod`                                                | The visual representation of the fishing rod and bobber. It implements the `ICatcherInterface` and uses timelines to animate the bobber being thrown and reeled back.                                         | `Actor/Actor_FishingRod.h`                                                                                                                       |
+| `AGameModeBase_StairwayFishingGame`                                | Manages the high-level game loop state transitions. It listens for state change requests and orchestrates screen fades and player input mode changes between "fishing" and "show fish" states.                | `GameModeBase/GameModeBase_StairwayFishingGame.h`                                                                                                |
+
+### Gameplay Flow
+
+The fishing process follows a sequence of events, from game initialization to catching a fish. This flow is managed by the core components and driven by player input and a messaging system.
+
+#### Initialization and Fish Spawning
+
+When the level starts, the `AActor_FishSpawnArea` is responsible for populating the water with fish.
+
+```mermaid
+sequenceDiagram
+    participant World
+    participant AActor_FishSpawnArea
+    participant UAssetManager
+    participant ICatchableInterface
+
+    World->>AActor_FishSpawnArea: BeginPlay()
+    AActor_FishSpawnArea->>UAssetManager: RequestAsyncLoad(FishActorClass)
+    UAssetManager-->>AActor_FishSpawnArea: OnFishSpawnAssetLoaded()
+    loop For each fish to spawn
+        AActor_FishSpawnArea->>World: SpawnActorDeferred(AActor)
+        World-->>AActor_FishSpawnArea: SpawnedActor
+        AActor_FishSpawnArea->>ICatchableInterface: SetSpawnAreaCenterAndExtent(...)
+        ICatchableInterface-->>AActor_FishSpawnArea: (acknowledge)
+        AActor_FishSpawnArea->>World: FinishSpawning()
+        World-->>AActor_FishSpawnArea: (done)
+    end
+
+```
+This sequence shows the asynchronous loading and subsequent spawning of fish actors within the defined spawn area. The spawn area provides its bounds to each fish so they can wander within it.
+
+Sources: [Source/FishingFeature/Private/Actor/Actor_FishSpawnArea.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_FishSpawnArea.cpp)
+
+#### The Casting Process
+
+The casting process begins when the player presses and holds the cast input action. The duration of the hold determines the casting distance.
+
+1.  **Input Handling**: The `APlayerController_StairwayFishingGamePlayerController` captures the `Started`, `Triggered`, and `Completed` events from the `CastingInputAction`. These events are broadcast via delegates.
+2.  **Casting Logic**: The `UActorComponent_FishingComponent` listens to these delegates.
+    *   On `Started`, it begins tracking the cast time and shows a target decal on the water.
+    *   While `Triggered` (held down), it continuously updates the cast location based on the elapsed time, mapping it to a min/max distance. A line trace from the calculated position downwards determines the final water surface location.
+    *   On `Completed` (released), it triggers the throwing animation and instructs the `AActor_FishingRod` to throw its bobber.
+
+Sources: [Source/StairwayFishingGameCore/Private/PlayerController/PlayerController_StairwayFishingGamePlayerController.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/PlayerController/PlayerController_StairwayFishingGamePlayerController.cpp), [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp)
+
+```mermaid
+sequenceDiagram
+    participant Player
+    participant PlayerController
+    participant FishingComponent
+    participant World
+    participant FishingRod
+
+    Player->>PlayerController: Press & Hold Cast Button
+    PlayerController->>FishingComponent: OnCastActionStarted()
+    FishingComponent->>FishingComponent: Start Cast Timer
+    loop While Button Held
+        PlayerController->>FishingComponent: OnCastActionTriggered(ElapsedTime)
+        FishingComponent->>FishingComponent: DetermineCastLocation(ElapsedTime)
+        Note right of FishingComponent: Maps time to distance
+        FishingComponent->>World: LineTraceSingleByObjectType()
+        World-->>FishingComponent: HitResult (Water Location)
+        FishingComponent->>FishingComponent: Update Decal Position
+    end
+    Player->>PlayerController: Release Cast Button
+    PlayerController->>FishingComponent: OnCastActionCompleted()
+    FishingComponent->>FishingComponent: Set state to Throwing
+    Note right of FishingComponent: Broadcasts Anim State Change Message
+    FishingComponent->>FishingRod: Throw(CastLocation)
+```
+This diagram details the flow from player input to the bobber being cast into the water.
+
+Sources: [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp), [Source/FishingFeature/Private/Actor/Actor_FishingRod.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_FishingRod.cpp)
+
+#### Catching a Fish
+
+Once the bobber lands in the water, the `FishingComponent` attempts to find a nearby fish.
+
+1.  **Bobber Lands**: The `AActor_FishingRod` notifies the `FishingComponent` via a delegate (`OnLandsOnWater`) when its throwing timeline is complete.
+2.  **Find Catchable**: The `FishingComponent` performs a sphere trace around the bobber's location to find all actors implementing `ICatchableInterface`. It sorts these actors by distance and selects the nearest one as `CurrentCatchable`.
+3.  **Luring the Fish**: The `FishingComponent` calls `ReeledIn()` on the `CurrentCatchable` (`AActor_Fish`). The fish then uses a timeline to move from its current position to the bobber's location.
+4.  **Waiting State**: The `FishingComponent` enters the `WaitingForFish` state and starts a timer (`TimeToFish`). If the player does not act before this timer runs out, the fish escapes.
+5.  **Reeling In**: If the player presses the cast button again while in the `WaitingForFish` state, the catch is successful. The component transitions to the `Reeling_In` state, and a message is sent to the animation system to play the reeling animation.
+
+Sources: [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp), [Source/FishingFeature/Private/Actor/Actor_Fish.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_Fish.cpp)
+
+### State Management and Messaging
+
+I relied on Gameplay Tags for both internal state management and for communication via a global messaging subsystem.
+
+#### Component State Machine
+
+The `UActorComponent_FishingComponent` uses a set of `FGameplayTag` variables to manage its internal state, ensuring operations occur in the correct sequence.
+
+```mermaid
+graph TD
+    A[Idling] -->|Cast Button Pressed| B(Throwing);
+    B -->|Throw Anim Notify| C(WaitingForFish);
+    C -->|Player Reels In Time| D(Reeling_In);
+    C -->|Timer Expires| E(Reeling_Out);
+    E -->|Reel Anim Done| A;
+    D -->|Reel Anim Done| F(CaughtFish);
+    F -->|State Change to Fishing| A;
+```
+This state diagram shows the primary states of the `FishingComponent` and the transitions between them.
+
+Sources: [Source/FishingGameplayTags/Private/FishingTags.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingGameplayTags/Private/FishingTags.cpp), [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp)
+
+#### Messaging System
+
+I achieved decoupled communication using `UVAGameplayMessagingSubsystem`. Components can broadcast messages on specific `FGameplayTag` channels, and other components can create listeners for those channels without needing direct references.
+
+**Key Messaging Channels:**
+
+| Channel Tag                               | Payload Type  | Description                                                                                                                                     |
+| ----------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Messaging.Fishing.UI.Cast.Update`        | `float`       | Broadcasts the current charge of the cast (0.0 to 1.0) for UI elements like a power bar.                                                          |
+| `Messaging.Fishing.AnimInstance.StateChange` | `FGameplayTag`| Sent to the Animation Blueprint to switch between animation states (e.g., `Idling`, `Throwing`, `Reeling_In`).                                     |
+| `Messaging.GameState.StateChange`         | `FGameplayTag`| Broadcast when a high-level game state change is required, such as from `Fishing` to `ShowFish`. This is received by the `GameState`.               |
+| `Messaging.GameMode.StateChange.Finish`   | `FGameplayTag`| Broadcast by the `GameMode` after its state transition (including screen fade) is complete. The `FishingComponent` listens for this to finalize the catch. |
+| `Messaging.Fishing.Notify.Throw`          | Empty         | An animation notify that signals the exact moment in an animation the bobber should be thrown. The `FishingComponent` listens for this.             |
+| `Messaging.Fishing.Notify.ReelDone`       | Empty         | An animation notify that signals the reeling animation has finished.                                                                            |
+
+Sources: [Source/FishingGameplayTags/Private/FishingTags.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingGameplayTags/Private/FishingTags.cpp), [Source/VAGameplayMessaging/Private/GameInstanceSubsystem/VAGameplayMessagingSubsystem.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/VAGameplayMessaging/Private/GameInstanceSubsystem/VAGameplayMessagingSubsystem.cpp), [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp)
+
+The `VAGameplayMessagingSubsystem` uses a `TMap<FGameplayTag, FChannelMembersData>` to keep track of all active listeners for each channel. When a message is broadcast, it looks up the channel tag in the map and iterates through the list of listeners, invoking their `OnGameplayMessageReceived` delegate.
+
+Sources: [Source/VAGameplayMessaging/Private/GameInstanceSubsystem/VAGameplayMessagingSubsystem.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/VAGameplayMessaging/Private/GameInstanceSubsystem/VAGameplayMessagingSubsystem.cpp)
+
+### Configuration via Data Assets
+
+I made the fishing system configurable through the use of `UDataAsset`. This allows me to tweak gameplay parameters without modifying code.
+
+-   **`DataAsset_FishingComponentConfig`**: Configures the core fishing mechanics.
+    -   `MaximumTimeToCast`: How long the player can hold the button to charge a cast.
+    -   `MinimumCastDistance` / `MaximumCastDistance`: The range of the cast distance.
+    -   `CastRadius`: The radius of the sphere trace used to find fish.
+    -   `TimeToFish`: The window of time the player has to reel in a fish after it bites.
+    -   `FishingRodActorClass`: A soft reference to the `AActor_FishingRod` blueprint to spawn.
+-   **`DataAsset_ActorFishConfig`**: Configures the behavior of an individual fish.
+    -   `FishRotationSpeed` / `FishMoveSpeed`: Controls the speed of the fish's wandering movement.
+    -   `FishReelingInCurve`: A `UCurveFloat` that defines the fish's movement as it's lured to the bobber.
+    -   `FishBiteSound`: The sound to play when the fish is successfully caught.
+-   **`DataAsset_FishSpawnAreaConfig`**: Configures the fish spawning logic.
+    -   `FishActorClass`: A soft reference to the `AActor_Fish` blueprint to spawn.
+    -   `FishSpawnAmount`: The number of fish to spawn in the area.
+-   **`DataAsset_FishingRodConfig`**: Configures the fishing rod's animations.
+    -   `BobberReelInCurve`: A `UCurveFloat` defining the bobber's trajectory when thrown.
+    -   `BobberReelOutCurve`: A `UCurveFloat` defining the bobber's movement when reeled back.
+
+### Editor Enhancements
+
+To improve the workflow, I implemented a custom details panel customization for the `UActorComponent_FishingComponent`.
+
+The `FDetailCustomization_FishingComponent` class provides a dropdown menu for selecting socket names (`FishingPoleSocketName`, `CarryFishSocketName`) in the editor. Instead of requiring me to manually type in socket names, this customization inspects the `OwnerSkeletalMesh` property within the component's configuration. It then populates a `SComboBox` with all available bone and socket names from that mesh, preventing typos and making setup faster. The dropdown is automatically updated whenever the assigned `SkeletalMesh` is changed.
+
+Sources: [Source/FishingFeatureEditor/Private/DetailCustomization/DetailCustomization_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeatureEditor/Private/DetailCustomization/DetailCustomization_FishingComponent.cpp)
+
+---
+
+### Module Overview
+
+#### Related Pages
+
+
+> **Relevant source files**
+>> - [Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp)
+> - [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp)
+> - [Source/VAGameplayMessaging/Private/GameInstanceSubsystem/VAGameplayMessagingSubsystem.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/VAGameplayMessaging/Private/GameInstanceSubsystem/VAGameplayMessagingSubsystem.cpp)
+> - [Source/StairwayFishingGameCore/Private/GameStateBase/GameStateBase_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/GameStateBase/GameStateBase_StairwayFishingGame.cpp)
+> - [Source/StairwayFishingGameCore/Private/PlayerController/PlayerController_StairwayFishingGamePlayerController.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/PlayerController/PlayerController_StairwayFishingGamePlayerController.cpp)
+> - [Source/FishingGameplayTags/Public/FishingTags.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingGameplayTags/Public/FishingTags.h)
+> - [Source/FishingFeature/Private/Actor/Actor_Fish.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_Fish.cpp)
+> - [Source/FishingFeature/Private/Actor/Actor_FishingRod.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_FishingRod.cpp)
+> - [Source/StairwayFishingGameCore/Private/Pawn/Pawn_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/Pawn/Pawn_StairwayFishingGame.cpp)
+> - [Source/FishingFeatureEditor/Private/DetailCustomization/DetailCustomization_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeatureEditor/Private/DetailCustomization/DetailCustomization_FishingComponent.cpp)
+
+## Module Overview
+
+Here is a technical overview of the Unreal-Fishing-Test project, a modular fishing game system I built in Unreal Engine. I designed the architecture to be event-driven and decoupled, separating the core gameplay logic, the fishing feature itself, and the messaging system into distinct modules. This separation facilitates maintenance, testing, and potential expansion of features.
+
+The system's backbone is a custom gameplay messaging subsystem, `VAGameplayMessagingSubsystem`, which uses `FGameplayTag` channels for communication. This allows various components, such as the `PlayerController`, `FishingComponent`, and `GameMode`, to interact without direct dependencies. I managed the core gameplay loop through a state machine implemented across the `GameState` and `GameMode`, transitioning the player between fishing and displaying the catch.
+
+### Core Modules
+
+I structured the project into several key modules, each with a specific responsibility.
+
+| Module                    | Responsibility                                                                                                     |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `StairwayFishingGameCore` | Manages the main game loop, player pawn, controller, game mode, and game state.                                    |
+| `FishingFeature`          | Contains all logic and assets for the fishing mechanic, including the fishing component, rod, fish, and spawn areas. |
+| `VAGameplayMessaging`     | Provides a global, event-driven messaging system for decoupled communication between modules.                      |
+| `FishingGameplayTags`     | Defines and registers all `FGameplayTag` constants used for messaging and state management.                        |
+| `FishingFeatureEditor`    | Implements Unreal Editor customizations to improve the development workflow, such as custom details panels.        |
+
+#### Module Dependency Diagram
+
+The following diagram illustrates the dependencies between the primary modules. The core game logic depends on the fishing feature and the messaging system, while the feature itself also relies on messaging to communicate events.
+
+```mermaid
+graph TD
+    subgraph Application
+        StairwayFishingGameCore
+        FishingFeature
+        VAGameplayMessaging
+    end
+
+    subgraph Editor
+        FishingFeatureEditor
+    end
+
+    StairwayFishingGameCore --> FishingFeature
+    StairwayFishingGameCore --> VAGameplayMessaging
+    FishingFeature --> VAGameplayMessaging
+    FishingFeatureEditor --> FishingFeature
+```
+
+### Gameplay Flow and State Management
+
+I managed the primary gameplay loop using a state machine pattern distributed between `AGameStateBase_StairwayFishingGame` and `AGameModeBase_StairwayFishingGame`.
+
+#### State Management
+
+-   **`AGameStateBase_StairwayFishingGame`**: This class is responsible for maintaining the current state of the game loop, stored in the `CurrentFishingGameLoopState` property. It listens for state change requests on the `Messaging_GameState_StateChange` channel. When a new state is received, it updates its internal state and broadcasts the change via its `OnFishingGameLoopStateChanged` delegate.
+-   **`AGameModeBase_StairwayFishingGame`**: The game mode listens to the `GameState`'s `OnFishingGameLoopStateChanged` delegate. Upon a state change, it orchestrates the necessary transitions, such as triggering camera fades, changing player input modes (e.g., from `FInputModeGameOnly` to `FInputModeUIOnly`), and instructing the player pawn to switch cameras via the `ISwitchableFishingViewInterface`.
+
+#### Gameplay Sequence Diagram
+
+This diagram illustrates the complete sequence of events from casting the line to catching a fish and transitioning to the "Show Fish" view.
+
+```mermaid
+sequenceDiagram
+    participant Player
+    participant PC as PlayerController
+    participant FC as FishingComponent
+    participant FR as FishingRod
+    participant Fish as FishActor
+    participant GS as GameState
+    participant GM as GameMode
+    participant Pawn
+    participant VAGameplayMessaging
+
+    Player->>PC: Press/Hold Cast Action
+    PC->>FC: OnCastActionTriggered()
+    FC->>FC: Calculate Cast Distance
+    Player->>PC: Release Cast Action
+    PC->>FC: OnCastActionCompleted()
+    FC->>VAGameplayMessaging: Broadcast(AnimInstance_State_Throwing)
+    Note over FC: Anim BP triggers "Throw" notify
+
+    VAGameplayMessaging-->>FC: OnThrowNotifyMessageReceived()
+    FC->>FR: Throw(CastLocation)
+    FR-->>FC: CatchableLandsOnWaterDelegate.Execute()
+    FC->>FC: Find nearest Fish
+    FC->>Fish: ReeledIn(RodLocation)
+    Fish-->>FC: (Fish moves to bobber)
+
+    Player->>PC: Press Cast Action (to reel)
+    PC->>FC: OnCastActionCompleted()
+    FC->>FR: ReelBack()
+    FC->>VAGameplayMessaging: Broadcast(AnimInstance_State_Reeling_In)
+    Note over FC: Anim BP triggers "ReelDone" notify
+
+    VAGameplayMessaging-->>FC: OnReelDoneNotifyMessageReceived()
+    FC->>VAGameplayMessaging: Broadcast(GameState_StateChange, "ShowFish")
+
+    VAGameplayMessaging-->>GS: OnGameStateChangeMessageReceived()
+    GS->>GS: SetCurrentFishingGameLoopState("ShowFish")
+    GS->>GM: OnFishingGameLoopStateChanged.Broadcast()
+    GM->>GM: TriggerScreenFadeInOut()
+    GM->>Pawn: SetFishingView("ShowFish")
+    Pawn-->>Pawn: Switch to ShowFishCamera
+    GM-->>GS: (Transition logic)
+    GM->>VAGameplayMessaging: Broadcast(GameMode_StateChangeFinish)
+
+    VAGameplayMessaging-->>FC: OnGameModeStateChangeFinishMessageReceived()
+    FC->>FC: Attach fish to player socket
+```
+
+### Event-Driven Communication
+
+I relied on the `UVAGameplayMessagingSubsystem` for decoupled communication. This system allows any object to broadcast a message on a specific `FGameplayTag` channel, and any other object to listen for messages on that channel without needing a direct reference.
+
+-   **Broadcasting**: Messages are sent using `UVAGameplayMessagingSubsystem::BroadcastMessage`. The payload can be any struct wrapped in the `FVAAnyUnreal` type, which allows for flexible data transfer.
+-   **Listening**: Listeners are created using the async action `UVAGameplayMessaging_ListenForGameplayMessages::ListenForGameplayMessagesViaChannel`. This node registers itself with the subsystem and exposes a delegate (`OnGameplayMessageReceived`) that fires when a message is broadcast on the subscribed channel.
+
+#### Key Gameplay Tags
+
+Gameplay Tags are central to the messaging system, defining channels for events and states.
+
+| Tag Category             | Tag Name                       | Purpose                                                                |
+| ------------------------ | ------------------------------ | ---------------------------------------------------------------------- |
+| `Messaging.Fishing`      | `UI.Cast.Update`               | Sends updates to the UI about the casting power meter.                 |
+| `Messaging.Fishing`      | `Notify.Throw`                 | Fired by an animation notify to signal the moment to throw the line.   |
+| `Messaging.Fishing`      | `Notify.ReelDone`              | Fired by an animation notify when the reeling animation is complete.   |
+| `Messaging.Fishing`      | `AnimInstance.StateChange`     | Instructs the character's Animation Blueprint to switch states.        |
+| `Messaging.GameState`    | `StateChange`                  | Requests a change in the global game loop state (e.g., to "ShowFish"). |
+| `Messaging.GameMode`     | `StateChange.Finish`           | Signals that the GameMode has completed its state transition logic.    |
+| `FishingGameLoopState`   | `Fishing` / `ShowFish`         | Defines the primary states of the game loop.                           |
+| `FishingComponent.State` | `Idling`, `Throwing`, etc.     | Defines the internal states of the `FishingComponent`.                 |
+| `AnimInstance.Fishing`   | `Idling`, `Throwing`, etc.     | Defines animation states for the character's animation blueprint.      |
+
+### Fishing Mechanic Implementation
+
+The `FishingFeature` module encapsulates all components related to the act of fishing.
+
+#### Class Relationship Diagram
+
+This diagram shows the main classes within the `FishingFeature` module and their relationships.
+
+```mermaid
+classDiagram
+    direction TD
+    class APawn_StairwayFishingGame {
+        +UActorComponent_FishingComponent* FishingComponent
+    }
+    class UActorComponent_FishingComponent {
+        -ICatcherInterface* CurrentCatcher
+        -ICatchableInterface* CurrentCatchable
+        +OnCastActionStarted()
+        +OnCastActionCompleted()
+        +Throw()
+        +ReelBack()
+    }
+    class ICatcherInterface {
+        <<Interface>>
+    }
+    class AActor_FishingRod {
+        +Throw(FVector InCastLocation)
+        +ReelBack()
+    }
+    class ICatchableInterface {
+        <<Interface>>
+    }
+    class AActor_Fish {
+        +ReeledIn(FVector RodLocation)
+        +Escape()
+    }
+    class AActor_FishSpawnArea {
+        +SpawnFishes()
+    }
+
+    APawn_StairwayFishingGame "1" *-- "1" UActorComponent_FishingComponent : hosts
+    UActorComponent_FishingComponent ..> ICatcherInterface : uses
+    UActorComponent_FishingComponent ..> ICatchableInterface : uses
+    AActor_FishingRod --|> ICatcherInterface : implements
+    AActor_Fish --|> ICatchableInterface : implements
+    AActor_FishSpawnArea ..> AActor_Fish : spawns
+```
+
+#### Core Components
+
+-   **`UActorComponent_FishingComponent`**: This is the brain of the fishing system. Attached to the player pawn, it manages the fishing state machine (`Idling`, `Throwing`, `WaitingForFish`, etc.). It binds to player input delegates from the `PlayerController`, handles the logic for casting distance, detects nearby fish using sphere traces, and orchestrates interactions between the fishing rod (`ICatcherInterface`) and the fish (`ICatchableInterface`).
+-   **`AActor_FishingRod`**: Implements the `ICatcherInterface`. This actor represents the physical fishing rod and bobber. It uses `FTimeline` components driven by `UCurveFloat` assets to create smooth, data-driven animations for casting out (`Throw`) and reeling back (`ReelBack`) the bobber.
+-   **`AActor_Fish`**: Implements the `ICatchableInterface`. Each fish is an autonomous actor that wanders within its spawn area. It uses timelines to handle its movement when it is being reeled in or when it escapes.
+-   **`AActor_FishSpawnArea`**: This actor defines a volume (`UBoxComponent`) where fish can be spawned. It asynchronously loads the fish actor class using `UAssetManager` and then spawns a configured number of fish at random points within its bounds.
+
+### Input Handling
+
+I managed player input using Unreal Engine's Enhanced Input system.
+
+-   **`APlayerController_StairwayFishingGamePlayerController`**: This class is responsible for setting up the input mapping context and binding to input actions. It defines a `CastingInputAction` which is bound to `Started`, `Triggered`, and `Completed` events.
+-   **Delegates**: Instead of directly handling logic, the Player Controller exposes delegates (`OnCastActionStarted`, `OnCastActionTriggered`, `OnCastActionCompleted`). Other systems, like the `UActorComponent_FishingComponent`, can bind to these delegates to receive input events. This decouples the input source from the gameplay logic.
+
+### Editor Customization
+
+To enhance the developer experience, I included an editor module, `FishingFeatureEditor`.
+
+-   **`FDetailCustomization_FishingComponent`**: This class provides a custom details panel UI for the `FFishingComponentConfig` struct within the `UActorComponent_FishingComponent`. It replaces the default `FName` text fields for socket names (`FishingPoleSocketName`, `CarryFishSocketName`) with a dropdown combo box. This combo box is dynamically populated with all available bone and socket names from the `USkeletalMesh` assigned in the config, reducing errors from typos and making configuration faster.
+
+---
+
+### Core Gameplay Classes
+
+#### Related Pages
+
+
+> **Relevant source files**
+>> - [Source/StairwayFishingGameCore/Public/GameModeBase/GameModeBase_StairwayFishingGame.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Public/GameModeBase/GameModeBase_StairwayFishingGame.h)
+> - [Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp)
+> - [Source/StairwayFishingGameCore/Public/GameStateBase/GameStateBase_StairwayFishingGame.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Public/GameStateBase/GameStateBase_StairwayFishingGame.h)
+> - [Source/StairwayFishingGameCore/Private/GameStateBase/GameStateBase_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/GameStateBase/GameStateBase_StairwayFishingGame.cpp)
+> - [Source/StairwayFishingGameCore/Public/PlayerController/PlayerController_StairwayFishingGamePlayerController.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Public/PlayerController/PlayerController_StairwayFishingGamePlayerController.h)
+> - [Source/StairwayFishingGameCore/Private/PlayerController/PlayerController_StairwayFishingGamePlayerController.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/PlayerController/PlayerController_StairwayFishingGamePlayerController.cpp)
+> - [Source/StairwayFishingGameCore/Public/Pawn/Pawn_StairwayFishingGame.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Public/Pawn/Pawn_StairwayFishingGame.h)
+> - [Source/StairwayFishingGameCore/Private/Pawn/Pawn_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/Pawn/Pawn_StairwayFishingGame.cpp)
+> - [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp)
+> - [Source/VAGameplayMessaging/Private/GameInstanceSubsystem/VAGameplayMessagingSubsystem.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/VAGameplayMessaging/Private/GameInstanceSubsystem/VAGameplayMessagingSubsystem.cpp)
+> - [Source/FishingGameplayTags/Public/FishingTags.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingGameplayTags/Public/FishingTags.h)
+
+## Core Gameplay Classes
+
+I built the core gameplay classes on the standard Unreal Engine gameplay framework. This system is composed of four main classes: `AGameModeBase_StairwayFishingGame`, `AGameStateBase_StairwayFishingGame`, `APlayerController_StairwayFishingGamePlayerController`, and `APawn_StairwayFishingGame`. Together, they manage the game's rules, state, player input, and the player's representation in the world.
+
+I designed the architecture to be event-driven, primarily using the `VAGameplayMessagingSubsystem` to communicate state changes between classes. The `GameState` acts as the central authority for the current game loop state, while the `GameMode` observes these changes and orchestrates transitions, such as camera fades and view switching on the `Pawn`. The `PlayerController` is dedicated to handling raw player input via the Enhanced Input system and broadcasting it to interested listeners, like the `FishingComponent` on the Pawn.
+
+### System Architecture Overview
+
+The following diagram illustrates the primary relationships and dependencies between the core gameplay classes.
+
+```mermaid
+classDiagram
+    direction TD
+    class AGameModeBase {
+        <<Unreal>>
+    }
+    class AGameStateBase {
+        <<Unreal>>
+    }
+    class APlayerController {
+        <<Unreal>>
+    }
+    class APawn {
+        <<Unreal>>
+    }
+    class AGameModeBase_StairwayFishingGame
+    class AGameStateBase_StairwayFishingGame
+    class APlayerController_StairwayFishingGamePlayerController
+    class APawn_StairwayFishingGame
+    class IPlayerActionInputInterface {
+        <<Interface>>
+        +OnCastActionStarted() FOnPlayerActionInput&
+        +OnCastActionTriggered() FOnPlayerActionInput&
+        +OnCastActionCompleted() FOnPlayerActionInput&
+    }
+    class ISwitchableFishingViewInterface {
+        <<Interface>>
+        +SetFishingView(FGameplayTag)
+    }
+    class UActorComponent_FishingComponent {
+        <<Component>>
+    }
+
+    AGameModeBase <|-- AGameModeBase_StairwayFishingGame
+    AGameStateBase <|-- AGameStateBase_StairwayFishingGame
+    APlayerController <|-- APlayerController_StairwayFishingGamePlayerController
+    APawn <|-- APawn_StairwayFishingGame
+
+    APlayerController_StairwayFishingGamePlayerController --|> IPlayerActionInputInterface
+    APawn_StairwayFishingGame --|> ISwitchableFishingViewInterface
+
+    AGameModeBase_StairwayFishingGame ..> AGameStateBase_StairwayFishingGame : "Listens to"
+    AGameModeBase_StairwayFishingGame ..> APawn_StairwayFishingGame : "Calls SetFishingView on"
+    AGameModeBase_StairwayFishingGame ..> APlayerController_StairwayFishingGamePlayerController : "Toggles Input Mode"
+    
+    APawn_StairwayFishingGame "1" *-- "1" UActorComponent_FishingComponent : "Contains"
+    UActorComponent_FishingComponent ..> APlayerController_StairwayFishingGamePlayerController : "Binds to delegates"
+
+```
+This diagram shows the inheritance from base Unreal classes and the key interactions. The `GameMode` listens to the `GameState` and directs the `Pawn` and `PlayerController` during state transitions. The `Pawn` implements the view-switching logic and contains the core `FishingComponent`, which in turn binds to input delegates from the `PlayerController`.
+
+Sources: [Source/StairwayFishingGameCore/Public/Pawn/Pawn_StairwayFishingGame.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Public/Pawn/Pawn_StairwayFishingGame.h), [Source/StairwayFishingGameCore/Public/PlayerController/PlayerController_StairwayFishingGamePlayerController.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Public/PlayerController/PlayerController_StairwayFishingGamePlayerController.h), [Source/StairwayFishingGameCore/Public/GameModeBase/GameModeBase_StairwayFishingGame.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Public/GameModeBase/GameModeBase_StairwayFishingGame.h), [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp)
+
+### `AGameStateBase_StairwayFishingGame`
+
+The `AGameStateBase_StairwayFishingGame` class is the authority on the current state of the game loop. Its primary role is to hold and manage the `CurrentFishingGameLoopState` as an `FGameplayTag`.
+
+#### State Management
+The game state listens for messages on the `Messaging_GameState_StateChange` channel. When a message containing a new `FGameplayTag` is received, it updates its internal state and broadcasts the change via the `OnFishingGameLoopStateChanged` delegate. This decoupling allows any system to request a state change without needing a direct reference to the `GameState` or its observers.
+
+In `BeginPlay`, it sets up an asynchronous listener for the state change message channel.
+```cpp {linenos=inline}
+// Source/StairwayFishingGameCore/Private/GameStateBase/GameStateBase_StairwayFishingGame.cpp
+void AGameStateBase_StairwayFishingGame::BeginPlay()
+{
+	Super::BeginPlay();
+
+	GameStateChangeMessageListenerAsync = UVAGameplayMessaging_ListenForGameplayMessages::ListenForGameplayMessagesViaChannel(this, FFishingTags::Get().Messaging_GameState_StateChange);
+
+	GameStateChangeMessageListenerAsync->OnGameplayMessageReceived.AddUniqueDynamic(
+		this, &ThisClass::OnGameStateChangeMessageReceived);
+
+	GameStateChangeMessageListenerAsync->Activate();
+}
+```
+
+When a message is received, `OnGameStateChangeMessageReceived` validates the payload and calls `SetCurrentFishingGameLoopState`, which triggers the broadcast.
+
+Sources: [Source/StairwayFishingGameCore/Public/GameStateBase/GameStateBase_StairwayFishingGame.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Public/GameStateBase/GameStateBase_StairwayFishingGame.h), [Source/StairwayFishingGameCore/Private/GameStateBase/GameStateBase_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/GameStateBase/GameStateBase_StairwayFishingGame.cpp)
+
+### `AGameModeBase_StairwayFishingGame`
+
+The `AGameModeBase_StairwayFishingGame` orchestrates high-level game flow based on state changes from the `AGameStateBase`. It is responsible for managing visual transitions and player input modes.
+
+#### Responding to State Changes
+Upon `BeginPlay`, the `GameMode` finds the `GameState` and binds its `OnFishingGameLoopStateChanged` method to the `GameState`'s delegate. When this event fires, the `GameMode` executes a series of actions to transition the game smoothly.
+
+The core transition logic involves:
+1.  Determining if the new state is for fishing (`FishingGameLoopState_Fishing`) or not.
+2.  Toggling the `PlayerController`'s input mode between `FInputModeGameOnly` and `FInputModeUIOnly`, and showing/hiding the mouse cursor accordingly.
+3.  Triggering a screen fade-out, switching the camera view on the possessed `Pawn`, and then fading back in.
+
+This entire sequence is initiated within `OnFishingGameLoopStateChanged`.
+
+Sources: [Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp)
+
+#### State Transition Flow
+
+The following diagram illustrates the sequence of events when the game state changes.
+
+```mermaid
+sequenceDiagram
+    participant System as External System
+    participant Messaging as VAGameplayMessagingSubsystem
+    participant GameState as AGameStateBase_StairwayFishingGame
+    participant GameMode as AGameModeBase_StairwayFishingGame
+    participant PC as APlayerController
+    participant Pawn as APawn_StairwayFishingGame
+
+    System->>Messaging: BroadcastMessage('Messaging.GameState.StateChange', NewStateTag)
+    Messaging->>GameState: OnGameStateChangeMessageReceived(NewStateTag)
+    GameState->>GameState: SetCurrentFishingGameLoopState(NewStateTag)
+    GameState-->>GameState: Broadcast(OnFishingGameLoopStateChanged)
+    
+    Note over GameState, GameMode: GameMode has previously bound to this delegate.
+    
+    GameState->>GameMode: OnFishingGameLoopStateChanged(NewStateTag)
+    GameMode->>PC: TogglePlayerControllerMode()
+    PC->>PC: SetInputMode()
+    PC->>PC: SetShowMouseCursor()
+    
+    GameMode->>GameMode: TriggerScreenFadeInOut()
+    Note right of GameMode: Starts a camera fade-out.
+    
+    loop After Fade-In Delay
+        GameMode->>Pawn: SetFishingView(NewStateTag)
+        Pawn->>Pawn: SetActive(Camera)
+        Pawn->>Pawn: SetActive(ShowFishCamera)
+        
+        GameMode->>Messaging: BroadcastMessage('Messaging.GameMode.StateChange.Finish')
+        Note right of GameMode: Starts a camera fade-in.
+    end
+```
+This flow demonstrates the decoupled communication. An external system sends a message, the `GameState` updates and broadcasts, and the `GameMode` reacts by coordinating the `PlayerController` and `Pawn` to reflect the new state.
+
+Sources: [Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp), [Source/StairwayFishingGameCore/Private/GameStateBase/GameStateBase_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/GameStateBase/GameStateBase_StairwayFishingGame.cpp), [Source/StairwayFishingGameCore/Private/Pawn/Pawn_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/Pawn/Pawn_StairwayFishingGame.cpp)
+
+### `APlayerController_StairwayFishingGamePlayerController`
+
+This class is responsible for translating player hardware input into gameplay actions using Unreal's Enhanced Input system. It implements the `IPlayerActionInputInterface` to expose delegates that other systems can bind to.
+
+### Input Handling
+
+Key properties for input are defined in the header:
+| Property | Type | Description |
+| --- | --- | --- |
+| `DefaultInputMappingContext` | `UInputMappingContext*` | The mapping context that links keys to input actions. |
+| `CastingInputAction` | `UInputAction*` | The input action for the primary fishing cast. |
+
+Sources: [Source/StairwayFishingGameCore/Public/PlayerController/PlayerController_StairwayFishingGamePlayerController.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Public/PlayerController/PlayerController_StairwayFishingGamePlayerController.h)
+
+In `BeginPlay`, the controller maps the `DefaultInputMappingContext`. The `MapInputActions` function then binds controller methods (`OnCastStarted`, `OnCastTriggered`, `OnCastFinished`) to the different trigger events of the `CastingInputAction`.
+
+```cpp {linenos=inline}
+// Source/StairwayFishingGameCore/Private/PlayerController/PlayerController_StairwayFishingGamePlayerController.cpp
+void APlayerController_StairwayFishingGamePlayerController::MapInputActions()
+{
+    // ... error checking ...
+	EnhancedInputComponent->BindAction(CastingInputAction, ETriggerEvent::Started, this, &ThisClass::OnCastStarted);
+	EnhancedInputComponent->BindAction(CastingInputAction, ETriggerEvent::Triggered, this, &ThisClass::OnCastTriggered);
+	EnhancedInputComponent->BindAction(CastingInputAction, ETriggerEvent::Completed, this, &ThisClass::OnCastFinished);
+}
+```
+
+These handler functions then broadcast their respective delegates, passing the elapsed time of the input action as a parameter. This allows listeners, such as the `UActorComponent_FishingComponent`, to react to the input without being tightly coupled to the `PlayerController`.
+
+Sources: [Source/StairwayFishingGameCore/Private/PlayerController/PlayerController_StairwayFishingGamePlayerController.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/PlayerController/PlayerController_StairwayFishingGamePlayerController.cpp)
+
+### `APawn_StairwayFishingGame`
+
+This class represents the player character in the game world. Since no player movement is required, it inherits from `APawn` instead of `ACharacter`. It contains all the necessary visual and logical components for the fishing gameplay.
+
+#### Components
+The Pawn is an aggregate of several components that provide its functionality:
+
+| Component | Type | Description |
+| --- | --- | --- |
+| `Capsule` | `UCapsuleComponent*` | The root component, providing collision. |
+| `Mesh` | `USkeletalMeshComponent*` | The visual representation of the player character. |
+| `SpringArm` | `USpringArmComponent*` | Positions the main camera at a distance from the pawn. |
+| `Camera` | `UCameraComponent*` | The main top-down gameplay camera. Active by default. |
+| `CastMeterBarWidget` | `UWidgetComponent*` | A UI widget component for displaying the cast meter. |
+| `FishingComponent` | `UActorComponent_FishingComponent*` | The core component that contains all fishing logic. |
+| `ShowFishCamera` | `UCameraComponent*` | A secondary camera used for showing the caught fish. Inactive by default. |
+
+Sources: [Source/StairwayFishingGameCore/Public/Pawn/Pawn_StairwayFishingGame.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Public/Pawn/Pawn_StairwayFishingGame.h)
+
+#### View Switching
+The Pawn implements the `ISwitchableFishingViewInterface`, which requires it to define the `SetFishingView` method. This function is called by the `GameMode` during a state transition. It activates or deactivates the `Camera` and `ShowFishCamera` based on whether the new game state tag matches `FishingGameLoopState_Fishing`.
+
+```cpp {linenos=inline}
+// Source/StairwayFishingGameCore/Private/Pawn/Pawn_StairwayFishingGame.cpp
+void APawn_StairwayFishingGame::SetFishingView(const FGameplayTag& InFishingGameLoopStateTag)
+{
+    // ... validation ...
+	const bool bShouldFish = InFishingGameLoopStateTag.MatchesTag(FFishingTags::Get().FishingGameLoopState_Fishing);
+
+	if (Camera)
+	{
+		Camera->SetActive(bShouldFish);
+	}
+
+	if (ShowFishCamera)
+	{
+		ShowFishCamera->SetActive(!bShouldFish);
+	}
+}
+```
+This simple mechanism allows the `GameMode` to control the player's perspective without needing to know the specific implementation details of the Pawn's cameras.
+
+Sources: [Source/StairwayFishingGameCore/Public/Pawn/Pawn_StairwayFishingGame.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Public/Pawn/Pawn_StairwayFishingGame.h), [Source/StairwayFishingGameCore/Private/Pawn/Pawn_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/Pawn/Pawn_StairwayFishingGame.cpp)
+
+### Summary
+
+I created the core gameplay classes to form a solid foundation using standard Unreal Engine patterns. The `GameState` serves as a single source of truth for the game loop state, while the `GameMode` acts as a director, orchestrating transitions. I handled player interaction cleanly via the `PlayerController` and its delegate system, which provides input to the `FishingComponent` on the `Pawn`. This separation of concerns ensures that each class has a distinct responsibility, making the system easier to maintain and expand.
+
+---
+
+### Messaging System (VAGameplayMessaging)
+
+#### Related Pages
+
+
+> **Relevant source files**
+>
+> - [Source/VAGameplayMessaging/Public/GameInstanceSubsystem/VAGameplayMessagingSubsystem.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/VAGameplayMessaging/Public/GameInstanceSubsystem/VAGameplayMessagingSubsystem.h)
+> - [Source/VAGameplayMessaging/Private/GameInstanceSubsystem/VAGameplayMessagingSubsystem.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/VAGameplayMessaging/Private/GameInstanceSubsystem/VAGameplayMessagingSubsystem.cpp)
+> - [Source/VAGameplayMessaging/Public/VACancellableAsyncAction/VAGameplayMessaging_ListenForGameplayMessages.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/VAGameplayMessaging/Public/VACancellableAsyncAction/VAGameplayMessaging_ListenForGameplayMessages.h)
+> - [Source/VAGameplayMessaging/Private/VACancellableAsyncAction/VAGameplayMessaging_ListenForGameplayMessages.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/VAGameplayMessaging/Private/VACancellableAsyncAction/VAGameplayMessaging_ListenForGameplayMessages.cpp)
+> - [Source/FishingGameplayTags/Public/FishingTags.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingGameplayTags/Public/FishingTags.h)
+> - [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp)
+> - [Source/StairwayFishingGameCore/Private/GameStateBase/GameStateBase_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/GameStateBase/GameStateBase_StairwayFishingGame.cpp)
+> - [Source/StairwayFishingGameUI/Private/UserWidget/MeterBar/UserWidgetMeterBar_CastMeterBar.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameUI/Private/UserWidget/MeterBar/UserWidgetMeterBar_CastMeterBar.cpp)
+
+## Messaging System (VAGameplayMessaging)
+
+I used the VAGameplayMessaging system to provide a decoupled communication framework for different parts of the application. I leveraged a centralized `UGameInstanceSubsystem` to manage message channels identified by `FGameplayTag`. This allows various game features, UI elements, and animation instances to communicate without holding direct references to each other, promoting modularity and reducing dependencies.
+
+Messages are broadcast on specific channels, and any object can listen to one or more channels using a cancellable asynchronous action. I ensured the system supports flexible data transfer through the `FVAAnyUnreal` struct, which can encapsulate any USTRUCT, UObject, or primitive type as a message payload.
+
+### Core Architecture
+
+I built the system around a central hub, `UVAGameplayMessagingSubsystem`, which is a `UGameInstanceSubsystem`. This ensures it has a global scope and persists for the entire game session. The subsystem's primary responsibility is to maintain a map of message channels and their corresponding listeners.
+
+*   **`UVAGameplayMessagingSubsystem`**: The central singleton that manages all message channels and listeners.
+*   **`ChannelToMembersMap`**: A `TMap<FGameplayTag, FChannelMembersData>` within the subsystem. It maps a gameplay tag (the channel) to a struct containing an array of active listeners.
+*   **`UVAGameplayMessaging_ListenForGameplayMessages`**: A `UVACancellableAsyncAction` that acts as a proxy for any object wanting to listen to messages. It handles its own registration and unregistration with the subsystem.
+
+#### Component Relationships
+
+The following diagram illustrates the relationship between the core components of the messaging system.
+
+```mermaid
+classDiagram
+    direction TD
+    class UVAGameplayMessagingSubsystem {
+        -TMap<FGameplayTag, FChannelMembersData> ChannelToMembersMap
+        +Get(UObject*) UVAGameplayMessagingSubsystem&
+        +BroadcastMessage(UObject*, FGameplayTag, FVAAnyUnreal) bool
+        +RegisterNewMember(FGameplayTagContainer, UVAGameplayMessaging_ListenForGameplayMessages*) bool
+        +UnregisterMember(UVAGameplayMessaging_ListenForGameplayMessages*) void
+    }
+    class FChannelMembersData {
+        -TArray<UVAGameplayMessaging_ListenForGameplayMessages*> ChannelMembers
+        +AddMembership(UVAGameplayMessaging_ListenForGameplayMessages*) void
+        +RemoveMembership(UVAGameplayMessaging_ListenForGameplayMessages*) void
+    }
+    class UVAGameplayMessaging_ListenForGameplayMessages {
+        -FGameplayTagContainer ChannelsToRegister
+        +FAsyncGameplayMessageSignature OnGameplayMessageReceived
+        +ListenForGameplayMessagesViaChannel(UObject*, FGameplayTag) UVAGameplayMessaging_ListenForGameplayMessages*
+        +Activate() void
+        +SetReadyToDestroy() void
+    }
+
+    UVAGameplayMessagingSubsystem "1" *-- "*" FChannelMembersData : Manages
+    FChannelMembersData "1" *-- "*" UVAGameplayMessaging_ListenForGameplayMessages : Contains
+```
+This diagram shows that the `UVAGameplayMessagingSubsystem` contains a map of `FChannelMembersData`, and each `FChannelMembersData` instance holds a list of `UVAGameplayMessaging_ListenForGameplayMessages` listeners.
+
+### Broadcasting Messages
+
+Messages are sent using the static function `UVAGameplayMessagingSubsystem::BroadcastMessage`. This function retrieves the subsystem instance and calls an internal method to perform the broadcast.
+
+The internal broadcast process is as follows:
+1.  Validate the `InChannel` `FGameplayTag`.
+2.  Check if the channel exists in the `ChannelToMembersMap`.
+3.  Retrieve the list of listeners (`UVAGameplayMessaging_ListenForGameplayMessages*`) for that channel.
+4.  Iterate through each listener, checking if it is valid.
+5.  If a listener is invalid, it is removed from the channel's member list.
+6.  For each valid listener, its `OnGameplayMessageReceived` delegate is broadcast, passing the channel tag and the message payload.
+
+#### Broadcast Flow Diagram
+
+```mermaid
+sequenceDiagram
+    participant Broadcaster as Game Logic<br>(e.g., FishingComponent)
+    participant Subsystem as UVAGameplayMessagingSubsystem
+    participant Listener as UVAGameplayMessaging_ListenForGameplayMessages
+    participant Receiver as Subscribed Object<br>(e.g., UI Widget)
+
+    Broadcaster->>Subsystem: BroadcastMessage(Channel, Payload)
+    Note over Subsystem: Get subsystem instance
+    Subsystem->>Subsystem: BroadcastMessage_Internal(Channel, Payload)
+    Subsystem->>Subsystem: Find listeners for Channel in ChannelToMembersMap
+    loop For each Listener
+        Subsystem->>Listener: Broadcast(OnGameplayMessageReceived)
+        Listener->>Receiver: Execute delegate binding
+    end
+```
+This sequence shows a game object broadcasting a message, the subsystem finding and notifying the relevant listener, which in turn executes the delegate bound by the final receiving object.
+
+### Listening for Messages
+
+Objects subscribe to message channels by creating an instance of `UVAGameplayMessaging_ListenForGameplayMessages`. This is typically done via one of its static factory functions, which are designed for use in both C++ and Blueprints.
+
+1.  **Creation**: An object calls `ListenForGameplayMessagesViaChannel` or `ListenForGameplayMessagesViaMultipleChannels`. This creates a new proxy object (the listener).
+2.  **Activation**: The listener's `Activate()` method is called.
+3.  **Registration**: Inside `Activate()`, the listener calls `Subsystem->RegisterNewMember()`, passing a reference to itself and the channels it wants to subscribe to.
+4.  **Storage**: The subsystem adds the listener to the `ChannelToMembersMap` for each requested channel. If a channel does not exist, it is created.
+
+The listener's `OnGameplayMessageReceived` delegate should be bound to a function in the subscribing object before activation to handle incoming messages.
+
+#### Listener Registration and Cancellation Flow
+
+```mermaid
+sequenceDiagram
+    participant Subscriber as Game Logic<br>(e.g., GameState)
+    participant Listener as UVAGameplayMessaging_ListenForGameplayMessages
+    participant Subsystem as UVAGameplayMessagingSubsystem
+
+    Subscriber->>Listener: ListenForGameplayMessagesViaChannel(this, Channel)
+    Note right of Subscriber: Binds to OnGameplayMessageReceived delegate
+    Subscriber->>Listener: Activate()
+    Listener->>Subsystem: RegisterNewMember(Channels, this)
+    Note over Subsystem: Adds listener to<br>ChannelToMembersMap
+    Subsystem-->>Listener: return true
+    
+    Note over Subscriber, Subsystem: ...Time passes, messages are received...
+
+    Subscriber->>Listener: Cancel() / SetReadyToDestroy()
+    Listener->>Subsystem: UnregisterMember(this)
+    Note over Subsystem: Removes listener from<br>all channels
+```
+This diagram illustrates the lifecycle of a listener, from its creation and registration with the subsystem to its eventual cancellation and unregistration.
+
+### Message Structure
+
+#### Channels (`FGameplayTag`)
+
+Communication channels are defined by `FGameplayTag`. This leverages Unreal Engine's hierarchical tagging system, allowing for organized and easily identifiable message streams. A central class, `FFishingTags`, defines all the native gameplay tags used by the fishing feature, ensuring consistency.
+
+Example channels:
+*   `Messaging.Fishing.UI.Cast.Update`: Used to update the UI with the current casting progress.
+*   `Messaging.Fishing.Notify.Throw`: An animation notify that triggers the fishing rod to throw the bobber.
+*   `Messaging.GameState.StateChange`: Used to request a change in the global game state.
+
+#### Payloads (`FVAAnyUnreal`)
+
+The system uses the `FVAAnyUnreal` struct for message payloads. This is a wrapper that can hold a value of almost any Unreal type, including primitives (`float`, `int32`), USTRUCTs, and UObjects. The receiving end can then safely check the type of the payload before attempting to extract the value.
+
+```cpp {linenos=inline}
+// Example of a broadcaster sending a float payload
+// Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp
+UVAGameplayMessagingSubsystem::Get(this).BroadcastMessage(this, FFishingTags::Get().Messaging_Fishing_UI_Cast_Update, InProgress);
+
+// Example of a receiver handling the float payload
+// Source/StairwayFishingGameUI/Private/UserWidget/MeterBar/UserWidgetMeterBar_CastMeterBar.cpp
+const bool bPayloadIsFloat = MessagePayload.Is<float>();
+if (!bPayloadIsFloat)
+{
+    // ... log error
+    return;
+}
+const float Progress = MessagePayload.Get<float>();
+```
+This provides type safety at runtime and avoids the need for multiple broadcast functions with different signatures.
+
+### Lifecycle Management
+
+The lifecycle of listeners is managed primarily by the `UVACancellableAsyncAction` base class.
+- **Registration**: When `Activate()` is called on a `UVAGameplayMessaging_ListenForGameplayMessages` instance, it registers itself with the subsystem.
+- **Unregistration**: When the async action is cancelled (e.g., via a `Cancel()` call or the owning object being destroyed), its `SetReadyToDestroy()` method is invoked. This method calls `Subsystem->UnregisterMember(this)`, which iterates through the entire `ChannelToMembersMap` and removes the listener from any channel it was a part of.
+- **Cleanup**: The `UVAGameplayMessagingSubsystem` itself, upon `Deinitialize()`, clears its `ChannelToMembersMap` entirely, ensuring no dangling references remain.
+
+### Key Components Summary
+
+| Component | Type | Role | Source File |
+| --- | --- | --- | --- |
+| `UVAGameplayMessagingSubsystem` | `UGameInstanceSubsystem` | Central hub for message routing. Manages channels and listeners. | `VAGameplayMessagingSubsystem.h` |
+| `UVAGameplayMessaging_ListenForGameplayMessages` | `UVACancellableAsyncAction` | Client-side proxy for subscribing to channels. Manages its own lifecycle. | `VAGameplayMessaging_ListenForGameplayMessages.h` |
+| `FChannelMembersData` | `USTRUCT` | A container struct holding an array of listeners for a single channel. | `VAGameplayMessagingSubsystem.h` |
+| `FGameplayTag` | `struct` | Used to define unique message channels. | `FishingTags.h` |
+| `FVAAnyUnreal` | `struct` | A type-safe wrapper for message payloads of any type. | `VAGameplayMessagingSubsystem.h` |
+
+### Conclusion
+
+The VAGameplayMessaging system is a data-driven framework that enables decoupled communication between different gameplay systems. By leveraging `UGameInstanceSubsystem` for global access, `FGameplayTag` for channel definition, and `UVACancellableAsyncAction` for lifecycle-aware listeners, I provided a clean and scalable solution for event handling within the project. Its use of `FVAAnyUnreal` for payloads adds a layer of type-safe flexibility, making it adaptable to a wide variety of communication needs.
+
+---
+
+### Fishing Gameplay Loop
+
+#### Related Pages
+
+
+> **Relevant source files**
+>
+> The following files were used as context for generating this wiki page:
+>
+> - [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp)
+> - [Source/FishingFeature/Private/Actor/Actor_FishingRod.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_FishingRod.cpp)
+> - [Source/FishingFeature/Private/Actor/Actor_Fish.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_Fish.cpp)
+> - [Source/FishingFeature/Private/Actor/Actor_FishSpawnArea.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_FishSpawnArea.cpp)
+> - [Source/FishingGameplayTags/Private/FishingTags.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingGameplayTags/Private/FishingTags.cpp)
+> - [Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp)
+> - [Source/StairwayFishingGameCore/Private/Pawn/Pawn_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/Pawn/Pawn_StairwayFishingGame.cpp)
+
+## Fishing Gameplay Loop
+
+I implemented the Fishing Gameplay Loop as a self-contained feature that manages all logic related to casting a fishing rod, waiting for a fish to bite, and reeling it in. I orchestrated the system via the `UActorComponent_FishingComponent`, which acts as a state machine and mediator between the player, the fishing rod, and the fish.
+
+The feature is heavily reliant on a state management system using Gameplay Tags and communicates between different objects asynchronously via the `VAGameplayMessagingSubsystem`. This decoupled architecture allows me to clearly separate concerns between player input, animation, game logic, and actor behaviors. I made the entire process configurable through Data Assets, allowing designers to tweak parameters like casting distance, wait times, and actor classes without changing code.
+
+### Core Components
+
+The system is composed of several key actors and components that work together to create the fishing experience.
+
+| Component/Actor | Role | Source File |
+| --- | --- | --- |
+| `UActorComponent_FishingComponent` | The central orchestrator of the fishing logic. Manages states, timers, player input, and communication between other components. | `ActorComponent_FishingComponent.h` |
+| `AActor_FishingRod` | Represents the physical fishing rod and bobber. Implements the `ICatcherInterface` and handles the visual throwing and reeling of the line. | `Actor_FishingRod.cpp` |
+| `AActor_Fish` | Represents a catchable fish. Implements the `ICatchableInterface` and manages its own movement, including wandering, being reeled in, and escaping. | `Actor_Fish.cpp` |
+| `AActor_FishSpawnArea` | Spawns a configurable number of `AActor_Fish` instances within a defined `UBoxComponent` volume at the start of the game. | `Actor_FishSpawnArea.cpp` |
+| `AGameModeBase_StairwayFishingGame` | Manages high-level game state transitions, such as fading the screen and switching cameras when a fish is caught and displayed. | `GameModeBase_StairwayFishingGame.cpp` |
+| `APawn_StairwayFishingGame` | The player's pawn which owns the `UActorComponent_FishingComponent` and holds the different cameras used for gameplay and showing the catch. | `Pawn_StairwayFishingGame.cpp` |
+
+#### Component Relationships
+
+The following diagram illustrates the primary relationships between the core classes. The `FishingComponent` acts as a central hub, interacting with the rod (`ICatcherInterface`) and the fish (`ICatchableInterface`).
+
+```mermaid
+classDiagram
+    direction TD
+    class UActorComponent
+    class AActor
+    class UActorComponent_FishingComponent
+    class AActor_FishingRod
+    class AActor_Fish
+    class IMockableFishingInterface {
+        <<Interface>>
+    }
+    class ICatcherInterface {
+        <<Interface>>
+        Throw(FVector)
+        ReelBack()
+    }
+    class ICatchableInterface {
+        <<Interface>>
+        ReeledIn(FVector)
+        Escape()
+        Catch(USceneComponent*)
+    }
+
+    UActorComponent <|-- UActorComponent_FishingComponent
+    AActor <|-- AActor_FishingRod
+    AActor <|-- AActor_Fish
+
+    UActorComponent_FishingComponent --|> IMockableFishingInterface
+    AActor_FishingRod --|> ICatcherInterface
+    AActor_Fish --|> ICatchableInterface
+
+    UActorComponent_FishingComponent "1" --> "1" ICatcherInterface : CurrentCatcher
+    UActorComponent_FishingComponent "1" --> "1" ICatchableInterface : CurrentCatchable
+```
+
+### State Management with Gameplay Tags
+
+I drove the fishing loop with a state machine implemented within `UActorComponent_FishingComponent`. The current state is tracked using a `FGameplayTag`, which dictates how the component responds to player input and game events. All tags are centrally defined in the `FFishingTags` class.
+
+#### Fishing Component States
+
+The `FishingComponent.State.*` tags define the current stage of the fishing process.
+
+| Tag | Description |
+| --- | --- |
+| `FishingComponent.State.Idling` | The default state. The player can start casting. |
+| `FishingComponent.State.Throwing` | The player has finished charging the cast and the rod is being thrown. Input is ignored. |
+| `FishingComponent.State.WaitingForFish` | The bobber is in the water. A timer is active, waiting for a fish to bite. Early input will cause the fish to escape. |
+| `FishingComponent.State.AbleToReel` | The fish has bitten. The player must press the action button to reel it in. |
+| `FishingComponent.State.Reeling_In` | The fish has been caught and is being reeled back to the player. |
+| `FishingComponent.State.Reeling_Out` | The rod is being reeled back after a failed attempt or the fish escaped. |
+
+#### Animation States
+
+A parallel set of tags, `AnimInstance.Fishing.State.*`, is used to drive the character's animations. These are broadcast via the messaging system to the character's Animation Blueprint.
+
+| Tag | Description |
+| --- | --- |
+| `AnimInstance.Fishing.State.Idling` | Corresponds to the idle animation state. |
+| `AnimInstance.Fishing.State.Throwing` | Triggers the casting/throwing animation montage. |
+| `AnimInstance.Fishing.State.Reeling_In` | Triggers the animation for successfully reeling in a fish. |
+| `AnimInstance.Fishing.State.Reeling_Out` | Triggers the animation for reeling in an empty line. |
+| `AnimInstance.Fishing.State.ShowFish` | Triggers the animation for showing off the caught fish. |
+
+#### State Machine Flow
+
+The diagram below shows the typical flow of states within the `UActorComponent_FishingComponent`.
+
+```mermaid
+graph TD
+    subgraph Fishing State Machine
+        A[Idling] -->|Hold Cast Action| B(Casting Preview)
+        B -->|Release Cast Action| C(Throwing)
+        C -->|Bobber Lands| D(WaitingForFish)
+        D -->|Timer Finishes| E(AbleToReel)
+        D -->|Early Input| F(Reeling_Out)
+        E -->|Cast Action| G(Reeling_In)
+        F -->|Reel Finished| A
+        G -->|Reel Finished| H(Show Fish State)
+    end
+```
+
+### The Fishing Process Step-by-Step
+
+The entire fishing sequence, from casting to catching, follows a well-defined series of events orchestrated by the `FishingComponent`.
+
+#### 1. Initialization and Spawning
+
+-   **Fish Spawning**: On `BeginPlay`, the `AActor_FishSpawnArea` asynchronously loads the `FishActorClass` defined in its config. Once loaded, it spawns a specified number of fish actors at random locations within its `UBoxComponent` bounds. Each fish is initialized with the spawn area's center and extent, which it uses for its wandering behavior.
+-   **Rod Spawning**: The `UActorComponent_FishingComponent` also asynchronously loads its `FishingRodActorClass`. When loaded, the fishing rod actor is spawned and attached to a specified socket on the owner's skeletal mesh.
+
+#### 2. Casting the Line
+
+-   **Charging the Cast**: The player presses and holds the cast action button. This calls `OnCastAction` in the `FishingComponent`.
+-   **Determining Location**: While the button is held, `DetermineCastLocation` is called continuously. It maps the elapsed time the button has been held to a distance between a minimum and maximum value. This determines the cast's target position in front of the player.
+    ```cpp {linenos=inline}
+    // Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp
+    const float MappedForwardDistance = FMath::GetMappedRangeValueClamped(FVector2D(0.f, MaximumTimeToCast), FVector2D(MinimumCastDistance, MaximumCastDistance), InElapsedTime);
+    const FVector ForwardDirection = InitialActorForwardVector * MappedForwardDistance;
+    const FVector CastStartPosition = InitialActorLocation + ForwardDirection;
+    ```
+-   **Finding the Water**: `AttemptToCast` then performs a line trace downwards from the target position to find a water body (identified by the `TRACE_WATER_BODY` collision channel). If water is found, the hit location is stored as `CastLocation`, and a decal actor is made visible at that spot to give the player feedback.
+
+#### 3. Throwing and Waiting
+
+-   **Throwing**: When the player releases the cast button, `OnCastActionEnded` is called. The component's state changes to `Throwing`, and it broadcasts a message to the animation system to play the "throwing" animation.
+-   **Animation Notify**: The throwing animation contains a notify that sends a `Messaging.Fishing.Notify.Throw` message. The `FishingComponent` listens for this message and, upon receiving it, calls the `Throw()` method on the `CurrentCatcher` (the fishing rod).
+-   **Bobber Movement**: `AActor_FishingRod::Throw` starts a timeline (`ThrowReelInTimeline`) that interpolates the bobber's position from the rod to the `CastLocation`.
+-   **Landing on Water**: When the timeline finishes, a delegate is executed, calling `OnBobberLandsOnWater` in the `FishingComponent`.
+-   **Finding a Fish**: The component then performs a sphere trace around the `CastLocation` to find the nearest `ICatchableInterface` (a fish).
+-   **Waiting Period**: A timer is started for a duration defined by `TimeToFish` in the config, and the state changes to `WaitingForFish`. The targeted fish is notified via its `ReeledIn()` method, causing it to swim towards the bobber.
+
+#### 4. Reeling In the Catch
+
+-   **The Bite**: When the `WaitingForFish` timer completes, the state transitions to `AbleToReel`.
+-   **Player Action**: The player must now press the cast action button again. If they do, `OnCastAction` is triggered while in the `AbleToReel` state.
+-   **Catching**: The fish is "caught" by calling `CurrentCatchable->Catch()`, which attaches the fish actor to an attach point on the fishing rod's bobber. The `ReelBack()` method is then called on the rod.
+-   **Reeling Back**: `AActor_FishingRod::ReelBack` uses another timeline (`PullReelOutTimeline`) to move the bobber (and the attached fish) back to its starting position on the rod.
+
+#### 5. Success and Failure
+
+-   **Success**: If the reeling process completes with a fish attached, an animation notify sends a `Messaging.Fishing.Notify.ReelDone` message. The `FishingComponent` receives this and broadcasts another message, `Messaging_GameState_StateChange`, with the payload `FishingGameLoopState_ShowFish`.
+-   **Failure (Escaping Fish)**: If the player presses the action button *during* the `WaitingForFish` state (before the timer finishes), it is considered an early reel. `LetCatchableEscape` is called, which in turn calls the `Escape()` method on the fish. The fish plays an escape timeline to swim back to its original location, and the player reels in an empty line.
+
+### System Communication and Game State Flow
+
+The `VAGameplayMessagingSubsystem` is used for decoupled communication between different parts of the game. This is particularly important for triggering logic from animation notifies and for signaling changes to the main game mode.
+
+The sequence diagram below details the interactions during a successful fishing attempt.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Player
+    participant PlayerInput
+    participant FishingComponent
+    participant AnimInstance
+    participant FishingRod
+    participant Fish
+    participant GameMode
+
+    Player->>PlayerInput: Hold Cast Button
+    PlayerInput->>FishingComponent: OnCastAction(elapsedTime)
+    Note over FishingComponent: State: Idling
+    
+    Player->>PlayerInput: Release Cast Button
+    PlayerInput->>FishingComponent: OnCastActionEnded()
+    FishingComponent->>AnimInstance: BroadcastMessage(AnimInstance_Fishing_State_Throwing)
+    Note over FishingComponent: State -> Throwing
+    
+    AnimInstance->>FishingComponent: OnThrowNotifyMessageReceived()
+    FishingComponent->>FishingRod: Throw(castLocation)
+    
+    loop Bobber Movement Timeline
+        FishingRod->>FishingRod: Interpolate bobber location
+    end
+    
+    FishingRod->>FishingComponent: OnBobberLandsOnWater()
+    Note over FishingComponent: State -> WaitingForFish
+    FishingComponent->>Fish: ReeledIn(bobberLocation)
+    Note over FishingComponent: Starts Wait Timer
+    
+    alt Player reels in too early
+        Player->>PlayerInput: Press Cast Button
+        PlayerInput->>FishingComponent: OnCastActionEnded()
+        FishingComponent->>Fish: Escape()
+    else Timer Finishes
+        Note over FishingComponent: State -> AbleToReel
+        Player->>PlayerInput: Press Cast Button
+        PlayerInput->>FishingComponent: OnCastAction(0)
+        FishingComponent->>Fish: Catch(attachPoint)
+        FishingComponent->>FishingRod: ReelBack()
+        Note over FishingComponent: State -> Reeling_In
+    end
+
+    AnimInstance->>FishingComponent: OnReelDoneNotifyMessageReceived()
+    FishingComponent->>GameMode: BroadcastMessage(FishingGameLoopState_ShowFish)
+    GameMode->>GameMode: OnFishingGameLoopStateChanged()
+    GameMode->>GameMode: TriggerScreenFadeInOut()
+```
+
+When the `GameMode` receives the `FishingGameLoopState_ShowFish` message, it initiates a screen fade, switches the active camera on the player pawn to a "show fish" camera, and changes the input mode to UI-only, presenting the player with options to continue or quit.
+
+### Testability
+
+I designed the system with testability in mind. The `UActorComponent_FishingComponent` implements the `IMockableFishingInterface`, which exposes methods to drive the fishing logic programmatically.
+
+-   `MockCast(float InElapsedTime)`: Simulates holding the cast button for a specific duration.
+-   `MockCastEnd()`: Simulates releasing the cast button.
+
+Functional tests, such as `AFunctionalTest_FishingFeatureTest`, can get a reference to this interface and call these methods to validate the entire fishing loop without requiring actual player input. The interface also provides delegates like `OnMockAbleToCatchFishDone` and `OnMockBobberLandsOnWater` that tests can bind to for asserting outcomes at specific stages of the process.
+
+---
+
+### Player Input and Controls
+
+#### Related Pages
+
+
+> **Relevant source files**
+>
+> The following files were used as context for generating this wiki page:
+>
+> - [Source/StairwayFishingGameCore/Public/PlayerController/PlayerController_StairwayFishingGamePlayerController.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Public/PlayerController/PlayerController_StairwayFishingGamePlayerController.h)
+> - [Source/StairwayFishingGameCore/Private/PlayerController/PlayerController_StairwayFishingGamePlayerController.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/PlayerController/PlayerController_StairwayFishingGamePlayerController.cpp)
+> - [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp)
+> - [Source/StairwayFishingGameCore/Public/GameModeBase/GameModeBase_StairwayFishingGame.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Public/GameModeBase/GameModeBase_StairwayFishingGame.h)
+> - [Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp)
+> - [Source/StairwayFishingGameCore/Public/Pawn/Pawn_StairwayFishingGame.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Public/Pawn/Pawn_StairwayFishingGame.h)
+
+## Player Input and Controls
+
+I built the player input and control system upon Unreal Engine's Enhanced Input System. It provides a decoupled, event-driven architecture for handling player actions, primarily the fishing cast mechanic. The core components include a dedicated Player Controller that interprets raw input, an interface to broadcast input events, and a consumer component that implements the game logic. The system is also managed by the Game Mode, which controls whether the player is in a "Game" or "UI" input context based on the current game state.
+
+The primary input action is the "Casting" action, which is bound to multiple trigger events (Started, Triggered, Completed) to allow for nuanced control, such as charging a cast by holding down a button. This design separates the input handling from the game mechanics, allowing different components to react to player input without being tightly coupled to the `PlayerController`.
+
+### Architecture Overview
+
+The system revolves around four key classes that collaborate to translate a physical input into a gameplay action. The `APlayerController_StairwayFishingGamePlayerController` is the central hub, responsible for setting up input mappings and broadcasting actions. It uses the `IPlayerActionInputInterface` to expose delegates, which are then bound by the `UActorComponent_FishingComponent` to execute fishing logic. The `AGameModeBase_StairwayFishingGame` oversees the process by managing the overall input mode.
+
+```mermaid
+classDiagram
+    direction TD
+
+    class APlayerController
+    class AGameModeBase
+    class APawn_StairwayFishingGame
+
+    class APlayerController_StairwayFishingGamePlayerController {
+      +UInputMappingContext* DefaultInputMappingContext
+      +UInputAction* CastingInputAction
+      +FOnPlayerActionInput OnCastStartedDelegate
+      +FOnPlayerActionInput OnCastTriggeredDelegate
+      +FOnPlayerActionInput OnCastCompletedDelegate
+      +BeginPlay()
+      +MapInputContext()
+      +MapInputActions()
+      +OnCastStarted()
+      +OnCastTriggered()
+      +OnCastFinished()
+    }
+
+    class IPlayerActionInputInterface {
+      <<Interface>>
+      +OnCastActionStarted() FOnPlayerActionInput&
+      +OnCastActionTriggered() FOnPlayerActionInput&
+      +OnCastActionCompleted() FOnPlayerActionInput&
+    }
+
+    class UActorComponent_FishingComponent {
+      -IPlayerActionInputInterface* OwnerControllerAsPlayerActionInput
+      +BeginPlay()
+      +BindToPlayerActionInputDelegates()
+      +OnCastAction(float InElapsedTime)
+      +OnCastActionEnded(float)
+    }
+
+    class AGameModeBase_StairwayFishingGame {
+      +OnFishingGameLoopStateChanged()
+      +TogglePlayerControllerMode(bool bIsEnabled)
+    }
+
+    APlayerController <|-- APlayerController_StairwayFishingGamePlayerController
+    APlayerController_StairwayFishingGamePlayerController ..|> IPlayerActionInputInterface: implements
+    APawn_StairwayFishingGame *-- UActorComponent_FishingComponent : component of
+    UActorComponent_FishingComponent ..> IPlayerActionInputInterface : uses/binds to
+    AGameModeBase <|-- AGameModeBase_StairwayFishingGame
+    AGameModeBase_StairwayFishingGame ..> APlayerController_StairwayFishingGamePlayerController : manages input mode
+
+```
+
+#### Input Handling Flow
+
+The following diagram illustrates the sequence of events from a player's physical input to the execution of the corresponding game logic within the `UActorComponent_FishingComponent`.
+
+```mermaid
+sequenceDiagram
+    participant Player
+    participant EILS as UEnhancedInput<br>LocalPlayerSubsystem
+    participant PC as APlayerController_StairwayFishingGamePlayerController
+    participant FC as UActorComponent_FishingComponent
+
+    Player->>EILS: Press/Hold/Release Cast Input
+    EILS->>PC: OnCastStarted(instance)
+    PC->>PC: BroadcastCastDelegateAndValue(OnCastStartedDelegate, instance)
+    PC->>FC: OnCastAction(elapsedTime)
+    
+    loop While input held
+        EILS->>PC: OnCastTriggered(instance)
+        PC->>PC: BroadcastCastDelegateAndValue(OnCastTriggeredDelegate, instance)
+        PC->>FC: OnCastAction(elapsedTime)
+    end
+
+    EILS->>PC: OnCastCompleted(instance)
+    PC->>PC: BroadcastCastDelegateAndValue(OnCastCompletedDelegate, instance)
+    PC->>FC: OnCastActionEnded(elapsedTime)
+```
+
+### Key Components
+
+#### APlayerController_StairwayFishingGamePlayerController
+
+This class is the primary handler for player input. It is configured with an Input Mapping Context and specific Input Actions to translate hardware inputs into game events.
+
+##### Initialization and Mapping
+
+On `BeginPlay`, the controller adds its `DefaultInputMappingContext` to the `UEnhancedInputLocalPlayerSubsystem` and binds its handler functions to the `CastingInputAction`.
+
+```cpp {linenos=inline}
+// Source/StairwayFishingGameCore/Private/PlayerController/PlayerController_StairwayFishingGamePlayerController.cpp
+void APlayerController_StairwayFishingGamePlayerController::MapInputActions()
+{
+	UEnhancedInputComponent* EnhancedInputComponent = nullptr;
+	if (!GetEnhancedInputComponent(EnhancedInputComponent))
+	{
+		// ... error logging ...
+		return;
+	}
+	if (!CastingInputAction)
+	{
+		// ... error logging ...
+		return;
+	}
+
+	EnhancedInputComponent->BindAction(CastingInputAction, ETriggerEvent::Started, this, &ThisClass::OnCastStarted);
+	EnhancedInputComponent->BindAction(CastingInputAction, ETriggerEvent::Triggered, this, &ThisClass::OnCastTriggered);
+	EnhancedInputComponent->BindAction(CastingInputAction, ETriggerEvent::Completed, this, &ThisClass::OnCastFinished);
+}
+```
+
+##### IPlayerActionInputInterface
+
+To decouple input broadcasting from any specific consumer, the controller implements the `IPlayerActionInputInterface`. This interface defines a contract for any class that wants to provide player action events. It exposes delegates for the three primary states of the cast action.
+
+| Delegate                | Description                                                                 |
+| ----------------------- | --------------------------------------------------------------------------- |
+| `OnCastActionStarted()`   | Fired once when the `CastingInputAction` is started (e.g., button press).     |
+| `OnCastActionTriggered()` | Fired every frame that the `CastingInputAction` is active (e.g., button held). |
+| `OnCastActionCompleted()` | Fired once when the `CastingInputAction` is completed (e.g., button release). |
+
+#### UActorComponent_FishingComponent
+
+This component contains the core fishing logic and acts as the consumer of the input events broadcast by the `PlayerController`.
+
+##### Delegate Binding
+
+In its `BeginPlay` sequence, the `UActorComponent_FishingComponent` finds the pawn's controller, verifies it implements `IPlayerActionInputInterface`, and binds its own functions to the interface's delegates. This establishes the communication link without the component needing a direct reference to the concrete `PlayerController` class.
+
+```cpp {linenos=inline}
+// Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp
+void UActorComponent_FishingComponent::BindToPlayerActionInputDelegates()
+{
+    // ... code to get OwnerControllerAsPlayerActionInput ...
+
+	OwnerControllerAsPlayerActionInput->OnCastActionStarted().BindUObject(this, &ThisClass::OnCastAction);
+	OwnerControllerAsPlayerActionInput->OnCastActionTriggered().BindUObject(this, &ThisClass::OnCastAction);
+	OwnerControllerAsPlayerActionInput->OnCastActionCompleted().BindUObject(this, &ThisClass::OnCastActionEnded);
+}
+```
+The `OnCastAction` method handles both starting the cast and reeling in a fish, depending on the current `CurrentFishingState`. The `OnCastActionEnded` method is responsible for executing the throw after the player releases the input.
+
+### Input Mode Management
+
+The `AGameModeBase_StairwayFishingGame` is responsible for managing the global input mode of the `PlayerController`. This ensures the player can only control the character when appropriate and can interact with UI elements at other times.
+
+#### State-Driven Control
+
+The `OnFishingGameLoopStateChanged` function is the entry point for this logic. When the game state changes (e.g., from `Fishing` to `ShowFish`), it calls `TogglePlayerControllerMode` to update the input settings.
+
+```mermaid
+graph TD
+    A[Game State Changes] --> B{OnFishingGameLoopStateChanged}
+    B --> C[bShouldFish = State == Fishing?]
+    C -->|true| D[TogglePlayerControllerMode]
+    C -->|false| E[TogglePlayerControllerMode]
+    D --> F[SetInputMode HideMouseCursor]
+    E --> G[SetInputMode ShowMouseCursor]
+```
+
+The `TogglePlayerControllerMode` function directly manipulates the `PlayerController` to switch between game input and UI input.
+
+| State | Input Mode | Mouse Cursor |
+| ----- | ---------- | ------------ |
+| Fishing | `FInputModeGameOnly` | Hidden |
+| Not Fishing | `FInputModeUIOnly` | Visible |
+
+```cpp {linenos=inline}
+// Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp
+void AGameModeBase_StairwayFishingGame::TogglePlayerControllerMode(APlayerController* InPlayerController, const bool& bIsEnabled) const
+{
+	if (!InPlayerController)
+	{
+		// ... error logging ...
+		return;
+	}
+
+	InPlayerController->EnableInput(InPlayerController);
+	
+	if (!bIsEnabled)
+	{
+		InPlayerController->SetInputMode(FInputModeUIOnly());
+	}
+	else
+	{
+		InPlayerController->SetInputMode(FInputModeGameOnly());
+	}
+
+	InPlayerController->SetShowMouseCursor(!bIsEnabled);
+}
+```
+
+---
+
+### Configuration with Data Assets
+
+#### Related Pages
+
+
+> **Relevant source files**
+>
+> The following files were used as context for generating this wiki page:
+>
+> - [Source/FishingFeature/Public/DataAsset/DataAsset_FishingComponentConfig.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Public/DataAsset/DataAsset_FishingComponentConfig.h)
+> - [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp)
+> - [Source/FishingFeature/Public/DataAsset/DataAsset_FishSpawnAreaConfig.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Public/DataAsset/DataAsset_FishSpawnAreaConfig.h)
+> - [Source/FishingFeature/Private/Actor/Actor_FishSpawnArea.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_FishSpawnArea.cpp)
+> - [Source/FishingFeature/Public/DataAsset/DataAsset_ActorFishConfig.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Public/DataAsset/DataAsset_ActorFishConfig.h)
+> - [Source/FishingFeature/Private/Actor/Actor_Fish.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_Fish.cpp)
+> - [Source/FishingFeature/Public/Actor/Actor_FishingRod.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Public/Actor/Actor_FishingRod.h)
+> - [Source/FishingFeature/Private/Actor/Actor_FishingRod.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_FishingRod.cpp)
+
+## Configuration with Data Assets
+
+I designed the fishing system to be configurable via Unreal Engine's Data Asset pattern. This approach decouples gameplay parameters from the core C++ logic, allowing me (or a designer) to create and modify different fishing behaviors, fish types, and spawning rules by editing asset files in the editor without changing code. The primary mechanism involves creating `UDataAsset`-derived classes that hold specific configuration structures. Actors and Components within the system then hold an editable reference to these Data Assets to retrieve their settings during initialization.
+
+This document outlines the architecture of this configuration system and details the various Data Assets used to control the fishing feature, including the main `FishingComponent`, the `FishingRod`, individual `Fish` actors, and `FishSpawnArea`s.
+
+### Core Configuration Architecture
+
+The system's configuration is based on a consistent pattern where a C++ struct defines a set of related properties, and a `UDataAsset` class acts as a container for an instance of that struct. This Data Asset can then be created and edited within the Unreal Editor. Game objects, such as Actors and Actor Components, expose a `UPROPERTY(EditAnywhere)` pointer to the specific Data Asset type they require, allowing designers to assign a configuration asset in the editor.
+
+The diagram below illustrates the relationship between a game object (`UActorComponent_FishingComponent`), its Data Asset (`UDataAsset_FishingComponentConfig`), and the underlying configuration struct (`FFishingComponentConfig`).
+
+```mermaid
+graph TD
+    subgraph "C++ Code"
+        A[FFishingComponentConfig Struct] --> B(UDataAsset_FishingComponentConfig Class);
+        B -- "Contains instance of" --> A;
+        C(UActorComponent_FishingComponent Class) -- "Holds UPROPERTY pointer to" --> B;
+    end
+
+    subgraph "Unreal Editor"
+        D(DA_FishingComponentConfig Asset) -- "Instance of" --> B;
+        E(Blueprint Actor) -- "Has instance of" --> C;
+        E -- "Assigns Asset" --> D;
+    end
+
+    C -- "Reads config from" --> D;
+```
+*This diagram shows how the `UActorComponent_FishingComponent` class holds a reference to a `UDataAsset_FishingComponentConfig` class. In the editor, a Blueprint actor with this component assigns a specific Data Asset (e.g., `DA_FishingComponentConfig`) to it. The component then reads its configuration values from this asset at runtime.*
+
+### Fishing Component Configuration
+
+The `UActorComponent_FishingComponent` is the central component that manages the fishing state machine and logic. Its behavior is configured via `UDataAsset_FishingComponentConfig`.
+
+#### `UDataAsset_FishingComponentConfig`
+
+This Data Asset contains an `FFishingComponentConfig` struct, which holds parameters related to casting, targeting, and asset references.
+
+```cpp {linenos=inline}
+// Source/FishingFeature/Public/DataAsset/DataAsset_FishingComponentConfig.h
+UCLASS()
+class FISHINGFEATURE_API UDataAsset_FishingComponentConfig : public UDataAsset
+{
+	GENERATED_BODY()
+
+public:
+	/*
+	 * Returns the fishing component config.
+	 */
+	FORCEINLINE FFishingComponentConfig GetFishingComponentConfig() const { return FishingComponentConfig; }
+
+protected:
+	/*
+	 * The fishing component config.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Fishing Component Config")
+	FFishingComponentConfig FishingComponentConfig;
+};
+```
+The component retrieves these values to control gameplay logic, such as calculating the cast distance based on how long the cast action is held.
+
+```cpp {linenos=inline}
+// Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp
+void UActorComponent_FishingComponent::DetermineCastLocation(const float& InElapsedTime)
+{
+	// ...
+	const FFishingComponentConfig FishingComponentConfig = FishingComponentConfigData->GetFishingComponentConfig();
+
+	const float MaximumTimeToCast = FishingComponentConfig.MaximumTimeToCast;
+	const float MinimumCastDistance = FishingComponentConfig.MinimumCastDistance;
+	const float MaximumCastDistance = FishingComponentConfig.MaximumCastDistance;
+
+	const float MappedForwardDistance = FMath::GetMappedRangeValueClamped(FVector2D(0.f, MaximumTimeToCast), FVector2D(MinimumCastDistance, MaximumCastDistance), InElapsedTime);
+    // ...
+}
+```
+
+### Fishing Rod Configuration
+
+The `AActor_FishingRod` is responsible for the visual representation and movement of the fishing rod and its bobber. Its configuration, defined in `UDataAsset_FishingRodConfig`, primarily controls the animation of the bobber using `UCurveFloat` assets.
+
+#### `UDataAsset_FishingRodConfig`
+
+This asset provides curves that drive timelines for the bobber's movement when it is cast (`Throw`) and reeled back.
+
+The `SetupTimelines` function in `AActor_FishingRod` reads the curve assets from the config and binds them to `FTimeline` objects.
+
+```cpp {linenos=inline}
+// Source/FishingFeature/Private/Actor/Actor_FishingRod.cpp
+void AActor_FishingRod::SetupTimelines()
+{
+	if (!FishingRodConfigData)
+	{
+		//...
+		return;
+	}
+
+	const FFishingRodConfig FishingRodConfig = FishingRodConfigData->GetFishingRodConfig();
+
+	UCurveFloat* BobberReelInCurve = FishingRodConfig.BobberReelInCurve;
+	if (BobberReelInCurve)
+	{
+		BIND_TIMELINE(ThrowReelInFloatUpdate, &ThisClass::OnThrowReelInUpdate, ThrowReelInFinishedEvent, &ThisClass::OnThrowReelInFinished)
+
+		SetupTimelineDataAndCallbacks(&ThrowReelInTimeline, ThrowReelInFloatUpdate, ThrowReelInFinishedEvent, BobberReelInCurve);
+	}
+    // ...
+}
+```
+This allows designers to visually author the acceleration and deceleration of the bobber's movement in the editor.
+
+### Fish Actor Configuration
+
+The behavior of individual fish is defined by `UDataAsset_ActorFishConfig`. This allows for different types of fish with unique movement characteristics and sounds.
+
+#### `UDataAsset_ActorFishConfig`
+
+This Data Asset contains an `FActorFishConfig` struct with parameters controlling the fish's AI and interaction behaviors.
+
+| Property | Type | Description |
+|---|---|---|
+| `FishRotationSpeed` | `float` | The speed at which the fish turns while wandering. |
+| `FishMoveSpeed` | `float` | The speed at which the fish moves while wandering. |
+| `FishWanderTargetRadius` | `float` | The radius around a wander target point. Once the fish enters this radius, it selects a new target. |
+| `FishReelingInCurve` | `UCurveFloat*` | A curve asset that controls the fish's movement when it's being reeled towards the bobber. |
+| `FishEscapedCurve` | `UCurveFloat*` | A curve asset that controls the fish's movement when it escapes back to its original location. |
+| `FishBiteSound` | `USoundBase*` | The sound played when the fish "bites" the bobber. |
+
+The `AActor_Fish` class retrieves these values in `SetupFishMovementValues` and uses them in its `WanderWithinBoundingBox` logic, which runs every tick.
+
+```mermaid
+graph TD
+    subgraph "Configuration"
+        ConfigAsset(DA_ActorFishConfig)
+    end
+
+    subgraph "Initialization"
+        A[AActor_Fish::BeginPlay] --> B(AActor_Fish::SetupFishMovementValues);
+        B -- "Reads values from" --> ConfigAsset;
+        B --> C{Cache values like<br>FishMoveSpeed,<br>FishRotationSpeed};
+    end
+
+    subgraph "Runtime (Tick)"
+        D[AActor_Fish::Tick] --> E(AActor_Fish::WanderWithinBoundingBox);
+        E -- "Uses cached values to" --> F(Calculate new location & rotation);
+        F --> G(SetActorLocationAndRotation);
+    end
+```
+*This diagram illustrates the data flow from the `DA_ActorFishConfig` asset to the `AActor_Fish`'s movement logic. Values are read once during initialization and then used every frame to drive the fish's wandering behavior.*
+
+### Fish Spawning Configuration
+
+The `AActor_FishSpawnArea` is a volume that handles the spawning of fish within its bounds. It uses `UDataAsset_FishSpawnAreaConfig` to determine what kind of fish to spawn and how many.
+
+#### `UDataAsset_FishSpawnAreaConfig`
+
+This Data Asset holds an `FFishSpawnAreaConfig` struct.
+
+| Property | Type | Description |
+|---|---|---|
+| `FishActorClass` | `TSoftClassPtr<AActor>` | A soft reference to the fish actor class to be spawned. Using a soft pointer allows for asynchronous loading. |
+| `FishSpawnAmount` | `int32` | The number of fish to spawn within the area. |
+
+The spawning process is asynchronous to avoid hitches when loading fish assets. The `AActor_FishSpawnArea` requests the asset load on `BeginPlay` and spawns the actors in a callback once the load is complete.
+
+#### Asynchronous Spawning Flow
+
+```mermaid
+sequenceDiagram
+    participant A as AActor_FishSpawnArea
+    participant B as UAssetManager
+    participant C as StreamableManager
+
+    A->>A: BeginPlay()
+    A->>A: RequestLoadFishAssetSoftClass()
+    Note right of A: Reads FishActorClass from its Data Asset
+    A->>B: GetStreamableManager()
+    B-->>A: Returns StreamableManager
+    A->>C: RequestAsyncLoad(FishActorClass, OnFishSpawnAssetLoaded)
+    C-->>A: Returns FStreamableHandle
+
+    Note over A,C: ...Time passes while asset loads...
+
+    C->>A: OnFishSpawnAssetLoaded() callback
+    A->>A: SpawnFishes()
+    loop For each FishSpawnAmount
+        A->>A: SpawnActorDeferred()
+        A->>A: SetSpawnAreaCenterAndExtent()
+        A->>A: FinishSpawning()
+    end
+```
+*This sequence diagram shows how `AActor_FishSpawnArea` initiates an asynchronous load of the fish actor class. The `UAssetManager` handles the loading in the background. Once complete, the `OnFishSpawnAssetLoaded` callback is executed, which then proceeds to spawn the configured number of fish.*
+
+### Conclusion
+
+The extensive use of Data Assets for configuration is a cornerstone of the fishing feature's design. It provides a clean separation between data and logic, empowering designers to iterate on gameplay balance, asset usage, and behavior without requiring engineering support. This modular and data-driven approach makes the system scalable and easy to maintain.
+
+---
+
+### UI Widgets
+
+#### Related Pages
+
+
+> **Relevant source files**
+>
+> The following files were used as context for generating this wiki page:
+>
+> - [Source/StairwayFishingGameUI/Private/UserWidget/MeterBar/UserWidgetMeterBar_CastMeterBar.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameUI/Private/UserWidget/MeterBar/UserWidgetMeterBar_CastMeterBar.cpp)
+> - [Source/StairwayFishingGameUI/Private/UserWidget/UserWidget_FishingDoneScreen.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameUI/Private/UserWidget/UserWidget_FishingDoneScreen.cpp)
+> - [Source/StairwayFishingGameUI/Public/UserWidget/UserWidget_MainOverlay.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameUI/Public/UserWidget/UserWidget_MainOverlay.h)
+> - [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp)
+> - [Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Private/GameModeBase/GameModeBase_StairwayFishingGame.cpp)
+> - [Source/StairwayFishingGameCore/Public/Pawn/Pawn_StairwayFishingGame.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/StairwayFishingGameCore/Public/Pawn/Pawn_StairwayFishingGame.h)
+
+## UI Widgets
+
+I created the UI system in the Stairway Fishing Game to provide visual feedback to the player for key gameplay actions, such as casting power and end-of-round options. I designed the system to be decoupled from the core gameplay logic, reacting to events broadcasted through the `VAGameplayMessagingSubsystem`. This event-driven architecture allows for flexible and maintainable UI components that respond to specific gameplay tags and payloads.
+
+The primary UI components include a main overlay that acts as a container, a dynamic cast meter bar that reflects the player's casting charge, and a "Fishing Done" screen that appears after a fish is successfully caught. These widgets are primarily managed through C++ logic, with their visual layout defined in Blueprint User Widgets.
+
+### UI Architecture Overview
+
+The UI is structured with a main container widget, `UUserWidget_MainOverlay`, which holds other specialized widgets. The `APawn_StairwayFishingGame` pawn directly incorporates the `CastMeterBarWidget` as a `UWidgetComponent`, while the `UserWidget_MainOverlay` is likely added to the viewport by the game's HUD management system.
+
+This diagram illustrates the composition of the UI widgets.
+
+```mermaid
+graph TD
+    subgraph "Game UI"
+        A[UUserWidget_MainOverlay] --> B[UUserWidget_FishingDoneScreen];
+        C(APawn_StairwayFishingGame) --> D[UWidgetComponent: CastMeterBarWidget];
+    end
+```
+*   `UUserWidget_MainOverlay` is the top-level widget containing the `FishingDoneScreen`.
+*   The `APawn_StairwayFishingGame` contains the `CastMeterBarWidget` as a component, which renders the `UUserWidgetMeterBar_CastMeterBar`.
+
+#### Key UI Widgets
+
+| Widget Class                      | Description                                                                                                                              | Source File                                                                                                |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `UUserWidget_MainOverlay`         | The main overlay for the game, acting as a container for other UI elements like the fishing done screen.                                   | `UserWidget_MainOverlay.h`                                                                                 |
+| `UUserWidgetMeterBar_CastMeterBar`  | A progress bar that visually represents the power of the player's cast. Its value and color are updated dynamically based on gameplay events. | `UserWidgetMeterBar_CastMeterBar.cpp`                                                                      |
+| `UUserWidget_FishingDoneScreen`   | A screen that appears after a fishing attempt is complete, typically showing buttons to restart or quit.                                   | `UserWidget_FishingDoneScreen.cpp`                                                                         |
+
+### Cast Meter Bar
+
+The `UUserWidgetMeterBar_CastMeterBar` provides real-time feedback to the player during the casting action. It listens for messages from the gameplay system to update its progress and color.
+
+#### Initialization and State
+
+Upon construction (`NativeConstruct`), the meter bar initializes itself to a progress of 0 and becomes hidden. It then registers a listener for UI update messages.
+
+```cpp {linenos=inline}
+// Source/StairwayFishingGameUI/Private/UserWidget/MeterBar/UserWidgetMeterBar_CastMeterBar.cpp
+void UUserWidgetMeterBar_CastMeterBar::NativeConstruct()
+{
+	Super::NativeConstruct();
+
+	ListenForUICastUpdateMessage();
+
+	InitializeMeterBar();
+}
+```
+
+#### Event Listening and Data Flow
+
+The cast meter's logic is driven by the `VAGameplayMessagingSubsystem`. It subscribes to a specific channel identified by the `Messaging_Fishing_UI_Cast_Update` gameplay tag.
+
+The sequence of events for updating the cast meter is as follows:
+1.  The `PlayerController` detects a "Cast" input action.
+2.  It notifies the `UActorComponent_FishingComponent` attached to the pawn.
+3.  The `FishingComponent` calculates the cast progress as a float value.
+4.  It broadcasts this float value on the `Messaging_Fishing_UI_Cast_Update` channel.
+5.  The `UUserWidgetMeterBar_CastMeterBar`, which is listening on this channel, receives the message.
+6.  It updates its progress bar's percentage and color based on the received float value.
+
+```mermaid
+sequenceDiagram
+    participant PC as PlayerController
+    participant FC as FishingComponent
+    participant GMS as VAGameplayMessagingSubsystem
+    participant CMB as CastMeterBar
+
+    PC->>FC: OnCastAction(elapsedTime)
+    FC->>FC: GetMappedElapsedTimeToMaximumCastTime()
+    FC->>GMS: BroadcastMessage(UI_Cast_Update, progress_float)
+    GMS-->>FC: 
+    GMS->>CMB: OnGameplayMessageReceived(payload: float)
+    CMB->>CMB: SetProgress(progress)
+    CMB->>CMB: SetProgressBarColor(color)
+    CMB->>CMB: ToggleVisibility(true)
+```
+*This diagram illustrates the message flow from player input to the UI update for the cast meter.*
+
+The `OnFishingMessageReceived` function handles the incoming message, validates that the payload is a float, and then updates the UI elements. The progress bar's color is determined by sampling a `UCurveLinearColor` asset (`CastMeterBarColorCurve`) at the given progress value.
+
+```cpp {linenos=inline}
+// Source/StairwayFishingGameUI/Private/UserWidget/MeterBar/UserWidgetMeterBar_CastMeterBar.cpp
+void UUserWidgetMeterBar_CastMeterBar::OnFishingMessageReceived(const FGameplayTag& Channel,
+	const FVAAnyUnreal&                                                             MessagePayload)
+{
+	// ... payload validation ...
+
+	const float        Progress = MessagePayload.Get<float>();
+	const FLinearColor Color = GetColorForProgress(Progress);
+
+	const bool bShouldBeVisible = Progress > 0.f;
+	ToggleVisibility(bShouldBeVisible);
+
+	SetProgress(Progress);
+	SetProgressBarColor(Color);
+}
+```
+
+### Fishing Done Screen
+
+The `UUserWidget_FishingDoneScreen` is a widget that becomes visible at the end of a successful fishing sequence, presenting the player with further options. Its visibility is controlled by the game's overall state.
+
+#### Visibility Control
+
+Similar to the cast meter, this widget listens for messages via the `VAGameplayMessagingSubsystem`. It subscribes to the `Messaging_GameMode_StateChangeFinish` channel. When it receives a message, it checks if the payload `FGameplayTag` matches `FishingGameLoopState_ShowFish`. If it does, the widget's button container becomes visible.
+
+The flow for showing the "Fishing Done" screen is:
+1.  The `FishingComponent` determines a fish has been caught and notifies the system to change the game state to `ShowFish`.
+2.  The `GameMode` processes this state change.
+3.  After the state transition is complete (including camera fades), the `GameMode` broadcasts a `Messaging_GameMode_StateChangeFinish` message with the new state tag (`FishingGameLoopState_ShowFish`).
+4.  The `UUserWidget_FishingDoneScreen` receives this message and makes its buttons visible.
+
+```mermaid
+sequenceDiagram
+    participant FC as FishingComponent
+    participant GMS as VAGameplayMessagingSubsystem
+    participant GM as GameMode
+    participant FDS as FishingDoneScreen
+
+    FC->>GMS: BroadcastMessage(GameState_StateChange, ShowFish)
+    
+    Note over GMS, GM: GameState notifies GameMode
+    
+    GM->>GM: OnFishingGameLoopStateChanged(ShowFish)
+    GM->>GM: TriggerScreenFadeInOut()
+    
+    loop Fade-in Timer
+        GM->>GMS: BroadcastMessage(StateChangeFinish, ShowFish)
+    end
+    
+    GMS->>FDS: OnFishingGameLoopStateChanged(payload: ShowFish)
+    FDS->>FDS: ToggleWidgetButtonsContainerVisibility(true)
+```
+*This diagram shows the event sequence that leads to the "Fishing Done" screen being displayed.*
+
+#### UI Message Subscriptions
+
+The UI widgets rely on a set of predefined gameplay messages to function.
+
+| Message Channel Tag                    | Payload Type      | Emitter(s)                                    | Listener(s)                                | Description                                                              |
+| -------------------------------------- | ----------------- | --------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------ |
+| `Messaging_Fishing_UI_Cast_Update`     | `float`           | `UActorComponent_FishingComponent`            | `UUserWidgetMeterBar_CastMeterBar`           | Updates the cast meter's progress during the casting action.             |
+| `Messaging_GameMode_StateChangeFinish` | `FGameplayTag`    | `AGameModeBase_StairwayFishingGame`           | `UUserWidget_FishingDoneScreen`            | Signals that a game state transition has finished, used to show the UI.  |
+
+This decoupled, message-based approach ensures that the UI can react to gameplay events without having direct dependencies on the actors or components that trigger them.
+
+---
+
+### Functional Testing
+
+#### Related Pages
+
+> **Relevant source files**
+> - [Source/FishingFeatureTests/Private/FunctionalTest/FunctionalTest_FishingFeatureTest.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeatureTests/Private/FunctionalTest/FunctionalTest_FishingFeatureTest.cpp)
+> - [Source/FishingFeatureTests/Private/FunctionalTest/FishingFeatureTest/FunctionalFishingFeatureTest_AbleToCatchFish.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeatureTests/Private/FunctionalTest/FishingFeatureTest/FunctionalFishingFeatureTest_AbleToCatchFish.cpp)
+> - [Source/FishingFeatureTests/Public/FunctionalTest/FishingFeatureTest/FunctionalFishingFeatureTest_AbleToCatchFish.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeatureTests/Public/FunctionalTest/FishingFeatureTest/FunctionalFishingFeatureTest_AbleToCatchFish.h)
+> - [Source/FishingFeatureTests/Public/FunctionalTest/FishingFeatureTest/FunctionalFishingFeatureTest_ReelTest.h](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeatureTests/Public/FunctionalTest/FishingFeatureTest/FunctionalFishingFeatureTest_ReelTest.h)
+> - [Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/ActorComponent/ActorComponent_FishingComponent.cpp)
+> - [Source/FishingFeature/Private/Actor/Actor_Fish.cpp](https://github.com/rezonated/Unreal-Fishing-Test/blob/main/Source/FishingFeature/Private/Actor/Actor_Fish.cpp)
+
+## Functional Testing
+
+I utilized Unreal Engine's built-in Functional Test framework to automate the validation of the core fishing gameplay mechanics. I designed these tests to run within a game session, simulating player actions and verifying the responses of the `UActorComponent_FishingComponent`. My primary goal was to ensure that key features like casting, fish detection, and reeling behave as expected under various conditions.
+
+The testing architecture is built around a base test class, `AFunctionalTest_FishingFeatureTest`, which provides common setup and utility functions. I implemented specific test scenarios, such as verifying the ability to catch a fish or successfully reeling one in, in derived classes. These tests interact with the fishing component through a dedicated `IMockableFishingInterface`, allowing the test framework to drive the component's state machine and listen for outcomes via delegates.
+
+### Test Framework Architecture
+
+The functional testing setup is composed of a base class that handles common initialization and several derived classes that implement specific test cases.
+
+```mermaid
+graph TD
+    A[AFunctionalTest] --> B[AFunctionalTest_FishingFeatureTest];
+    B --> C[AFunctionalFishingFeatureTest_AbleToCatchFish];
+    B --> D[AFunctionalFishingFeatureTest_ReelTest];
+```
+<center><i>Functional Test Class Hierarchy</i></center>
+
+#### Base Test Class: AFunctionalTest_FishingFeatureTest
+
+This class serves as the foundation for all fishing-related functional tests. Its main responsibility is to prepare the test environment by locating the target `UActorComponent_FishingComponent` to be tested.
+
+-   **`PrepLookForMockableFishingComponent()`**: This function is called at the start of a test. It finds the first player controller and its associated pawn. It then iterates through the pawn's components to find one that implements the `UMockableFishingInterface`. This interface provides the necessary hooks (`MockCast`, `MockCastEnd`, and delegates) for the test to drive and monitor the fishing component's behavior. If a valid component cannot be found, the test fails immediately.
+
+#### Test Execution Flow
+
+The tests simulate player input by using the `Tick` function to manage time. A common pattern is to increment a timer (`CurrentMockFishingTime`) and continuously call the `MockCast` function on the fishing component. Once the timer reaches a randomized duration, `MockCastEnd` is called to simulate the player releasing the cast action. The test then waits for delegates to be fired from the fishing component to determine the outcome.
+
+```mermaid
+sequenceDiagram
+    participant Test as AFunctionalTest_FishingFeatureTest
+    participant Component as UActorComponent_FishingComponent
+
+    loop Every Frame
+        Test->>Test: CurrentMockFishingTime += DeltaTime
+        Test->>Component: MockCast(CurrentMockFishingTime)
+    end
+
+    alt CurrentMockFishingTime >= RandomizedTime
+        Test->>Component: MockCastEnd()
+        Note over Component: Begins internal logic (casting, waiting for fish, etc.)
+    end
+```
+<center><i>General Test Input Simulation Flow</i></center>
+
+### Test Scenarios
+
+Specific gameplay mechanics are validated through dedicated test actor classes.
+
+#### Able to Catch Fish Test
+
+The `AFunctionalFishingFeatureTest_AbleToCatchFish` class is designed to verify that the fishing component can successfully detect a fish after casting.
+
+**Purpose**: To confirm that after a cast, a sphere trace is performed, a nearby "catchable" actor is identified, and the component transitions to the "waiting for fish" state.
+
+**Execution Steps**:
+1.  **BeginPlay**: The test prepares the environment using `PrepLookForMockableFishingComponent`. It then binds a handler, `OnMockAbleToCatchFishDone`, to the corresponding delegate on the mockable interface. A random hold time for the cast is calculated.
+2.  **Tick**: The test simulates holding down the cast button for the randomized duration.
+3.  **Cast End**: `MockCastEnd` is called, triggering the fishing component's casting logic.
+4.  **Verification**: The fishing component, upon the bobber landing, performs a sphere trace to find catchable actors (`AttemptGetNearestCatchable`). It then sorts them by distance and selects the nearest one. Finally, it executes the `MockAbleToCatchFishDoneDelegate` with `true` if a catchable was found, or `false` otherwise.
+5.  **Result**: The test's `OnMockAbleToCatchFishDone` handler receives the result. If the result is `true`, the test passes; otherwise, it fails.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Test as AFunctionalFishingFeatureTest_AbleToCatchFish
+    participant Component as UActorComponent_FishingComponent
+
+    Test->>Component: OnMockAbleToCatchFishDone().BindUObject()
+    
+    loop Until RandomizedMockFishingTime
+        Test->>Component: MockCast(CurrentTime)
+    end
+    
+    Test->>Component: MockCastEnd()
+    Note over Component: Initiates cast animation and logic
+    
+    Note over Component: Bobber lands...
+    Component->>Component: AttemptGetNearestCatchable()
+    Note right of Component: Sphere trace for fish
+    
+    alt Fish found
+        Component-->>Test: MockAbleToCatchFishDoneDelegate.Execute(true)
+    else No fish found
+        Component-->>Test: MockAbleToCatchFishDoneDelegate.Execute(false)
+    end
+
+    Test->>Test: OnMockAbleToCatchFishDone(bSuccess)
+    Test->>Test: FinishTest(Succeeded or Failed)
+```
+<center><i>"Able to Catch Fish" Test Sequence</i></center>
+
+#### Reel In Test
+
+The `AFunctionalFishingFeatureTest_ReelTest` class validates the player's ability to reel in a fish. This test is more complex as it involves multiple stages of the fishing process and can be configured to test both success and failure scenarios.
+
+**Purpose**: To confirm the entire sequence from casting, waiting for a fish to bite, and reeling it in. The `bExpectedResult` property allows the test to verify both successful reels and failures (e.g., reeling in too early).
+
+| Property | Type | Description |
+|---|---|---|
+| `MinMockHoldFishingTime` | `float` | Minimum time to simulate holding the cast action. |
+| `MaxMockHoldFishingTime` | `float` | Maximum time to simulate holding the cast action. |
+| `MinMockReelInTime` | `float` | Minimum delay before simulating the reel-in action after a fish is on the line. |
+| `MaxMockReelInTime` | `float` | Maximum delay before simulating the reel-in action after a fish is on the line. |
+| `bExpectedResult` | `bool` | The expected outcome of the test (`true` for a successful catch, `false` for a failed one). |
+
+**Execution Steps**:
+1.  **BeginPlay**: The test binds to two delegates: `OnMockReelInDone` and `OnBobberLandsOnWater`.
+2.  **Casting**: The test simulates a cast, similar to the "Able to Catch Fish" test.
+3.  **Bobber Lands**: The `OnBobberLandsOnWater` delegate is triggered by the fishing component. The test handler for this delegate then starts another timer to simulate waiting for the fish to bite before reeling.
+4.  **Reeling**: After a randomized `ReelInTime`, the test calls `OnCastAction` again, which in the `AbleToReel` state, triggers the catch logic.
+5.  **Verification**: The fishing component processes the reel-in action. If the state is correct (`AbleToReel`), it attaches the fish and reels back, eventually firing `MockReelInDoneDelegate` with `true`. If the player reels too early (while in `WaitingForFish` state), the fish escapes, and the delegate is fired with `false`.
+6.  **Result**: The `OnMockReelInDone` handler compares the boolean result from the delegate with its configured `bExpectedResult` to determine if the test passed or failed.
+
+## Summary
+
+The functional testing suite provides an automated and reliable way to validate the fishing feature's complex state machine. By simulating player actions and using a mockable interface with delegates, the tests can confirm the correctness of critical gameplay flows, from casting and finding a fish to successfully reeling it in. This ensures that changes to the fishing component or related data assets do not introduce regressions and that the core mechanic remains stable.
