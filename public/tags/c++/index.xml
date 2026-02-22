@@ -1,59 +1,8 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>C++ on V's personal site</title><link>https://rezonated.github.io/tags/c++/</link><description>Recent content in C++ on V's personal site</description><generator>Hugo</generator><language>en-us</language><lastBuildDate>Tue, 11 Nov 2025 00:00:00 +0000</lastBuildDate><atom:link href="https://rezonated.github.io/tags/c++/index.xml" rel="self" type="application/rss+xml"/><item><title>Simulating 1000 flocking fish in Unreal Engine</title><link>https://rezonated.github.io/posts/1000_boids/</link><pubDate>Tue, 11 Nov 2025 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/posts/1000_boids/</guid><description>&lt;h1 class="heading" id="introduction">
- Introduction
- &lt;a class="anchor" href="#introduction">#&lt;/a>
-&lt;/h1>
-&lt;p>Simulating the flocking behavior of birds or the schooling of fish is a classic problem in computer graphics. The Boids algorithm, created by &lt;a href="https://www.red3d.com/cwr/">Craig Reynolds&lt;/a> in 1986, offers a powerful solution. It demonstrates how complex, life-like group motion can emerge from individuals following a few simple rules, without any central leader or complex choreography.&lt;/p>
-&lt;p>This principle offers a way to add life to game worlds. A common application is simulating a school of fish, but a significant technical challenge arises when scaling up to large numbers. The target here was to effectively simulate a school of 1000 fish, moving as one cohesive unit while still allowing for individual interaction.&lt;/p></description></item><item><title>TNonNullPtr: UE's bouncer for null pointers!</title><link>https://rezonated.github.io/posts/tnonnullptr/</link><pubDate>Sat, 08 Nov 2025 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/posts/tnonnullptr/</guid><description>&lt;h1 class="heading" id="introduction">
- Introduction
- &lt;a class="anchor" href="#introduction">#&lt;/a>
-&lt;/h1>
-&lt;p>If you&amp;rsquo;ve spent any time writing gameplay code in Unreal&amp;rsquo;s C++, you know the routine. The code we all have to write.&lt;/p>
-&lt;p>Before you can safely use a pointer, you have to check it. This defensive habit is essential for preventing crashes, but it often leads to code that looks like this:&lt;/p>
-&lt;div class="highlight">&lt;pre tabindex="0" style="color:#ccc;background-color:#000;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-cpp" data-lang="cpp">&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 1&lt;/span>&lt;span>&lt;span style="color:#00cd00">void&lt;/span> AMyGameMode&lt;span style="color:#39c">::&lt;/span>StartRound(&lt;span style="color:#cdcd00">const&lt;/span> AController&lt;span style="color:#39c">*&lt;/span> PlayerController)
-&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 2&lt;/span>&lt;span>{
-&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 3&lt;/span>&lt;span>	&lt;span style="color:#cdcd00">if&lt;/span> (PlayerController)
-&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 4&lt;/span>&lt;span>	{
-&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 5&lt;/span>&lt;span>		&lt;span style="color:#cdcd00">if&lt;/span> (PlayerController&lt;span style="color:#39c">-&amp;gt;&lt;/span>GetPawn&lt;span style="color:#39c">&amp;lt;&lt;/span>AMyCharacter&lt;span style="color:#39c">&amp;gt;&lt;/span>())
-&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 6&lt;/span>&lt;span>		{
-&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 7&lt;/span>&lt;span>			&lt;span style="color:#cdcd00">if&lt;/span> (PlayerController&lt;span style="color:#39c">-&amp;gt;&lt;/span>GetPawn&lt;span style="color:#39c">&amp;lt;&lt;/span>AMyCharacter&lt;span style="color:#39c">&amp;gt;&lt;/span>()&lt;span style="color:#39c">-&amp;gt;&lt;/span>GetMyWeaponComponent())
-&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 8&lt;/span>&lt;span>			{
-&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 9&lt;/span>&lt;span>				PlayerController&lt;span style="color:#39c">-&amp;gt;&lt;/span>GetPawn&lt;span style="color:#39c">&amp;lt;&lt;/span>AMyCharacter&lt;span style="color:#39c">&amp;gt;&lt;/span>()&lt;span style="color:#39c">-&amp;gt;&lt;/span>GetMyWeaponComponent()&lt;span style="color:#39c">-&amp;gt;&lt;/span>EquipWeapon();
-&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">10&lt;/span>&lt;span>			}
-&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">11&lt;/span>&lt;span>		}
-&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">12&lt;/span>&lt;span>	}
-&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">13&lt;/span>&lt;span>}
-&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>This code is safe, perfectly fine. But it&amp;rsquo;s not clean. The core intent is buried under layers of validation. What if&amp;hellip; we could flip this pattern on its head?&lt;/p></description></item><item><title>Approaches to replicate Unreal Engine's TMap</title><link>https://rezonated.github.io/posts/tmap_replication/</link><pubDate>Sat, 14 Jun 2025 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/posts/tmap_replication/</guid><description>&lt;h1 class="heading" id="introduction">
- Introduction
- &lt;a class="anchor" href="#introduction">#&lt;/a>
-&lt;/h1>
-&lt;p>If you ever attempt to put a &lt;code>Replicated&lt;/code> specifier on your &lt;code>UPROPERTY&lt;/code> with &lt;code>TMap&lt;/code>, your IDE or compiler might yell at you like this:&lt;/p>
-&lt;p>
-
-
-
-&lt;p>
- &lt;img src="https://rezonated.github.io/posts/tmap_replication/tmap_doesnt_support_replication.png" 
- alt="TMap Replication Attempt" 
- 
- title="Replication maps are not supported?" />
-&lt;/p>&lt;/p>
-&lt;h1 class="heading" id="why-cant-tmap-be-replicated-by-unreal">
- Why can&amp;rsquo;t TMap be replicated by Unreal?
- &lt;a class="anchor" href="#why-cant-tmap-be-replicated-by-unreal">#&lt;/a>
-&lt;/h1>
-&lt;p>Unreal&amp;rsquo;s built-in replication only supports certain types that the replication system knows how to serialize. This includes basic primitives, some containers like &lt;code>TArray&lt;/code>, &lt;code>FVector&lt;/code>, or custom structs containing &lt;code>UPROPERTY&lt;/code> fields.&lt;/p></description></item><item><title>Networked Deterministic Array Shuffle in Unreal Engine</title><link>https://rezonated.github.io/posts/deterministic_shuffle/</link><pubDate>Fri, 13 Jun 2025 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/posts/deterministic_shuffle/</guid><description>&lt;h1 class="heading" id="introduction">
- Introduction
- &lt;a class="anchor" href="#introduction">#&lt;/a>
-&lt;/h1>
-&lt;p>Sometimes, you want to do a deterministic shuffle of an array for purposes like gacha mechanics, or in my case, replicating the Spin the Wheel minigame in Coral Island!&lt;/p>
-&lt;p>
-
-
-
-&lt;p>
- &lt;img src="https://rezonated.github.io/posts/deterministic_shuffle/spin_the_wheel.png" 
- alt="Spin the Wheel - Coral Island" 
- 
- title="One of festival minigames that players can play in Coral Island" />
-&lt;/p>&lt;/p>
-&lt;p>At the time this feature was developed, it hadn&amp;rsquo;t yet been made to work with multiplayer. Even though Coral Island is a co-op game, not a competitive one, Unreal Engine still adopts a server-authoritative multiplayer model.&lt;/p></description></item></channel></rss>
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>C++ on V's personal site</title><link>https://rezonated.github.io/tags/c++/</link><description>Recent content in C++ on V's personal site</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><lastBuildDate>Tue, 11 Nov 2025 00:00:00 +0000</lastBuildDate><atom:link href="https://rezonated.github.io/tags/c++/index.xml" rel="self" type="application/rss+xml"/><item><title>Simulating 1000 flocking fish in Unreal Engine</title><link>https://rezonated.github.io/posts/1000_boids/</link><pubDate>Tue, 11 Nov 2025 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/posts/1000_boids/</guid><description>Introduction Simulating the flocking behavior of birds or the schooling of fish is a classic problem in computer graphics. The Boids algorithm, created by Craig Reynolds in 1986, offers a powerful solution. It demonstrates how complex, life-like group motion can emerge from individuals following a few simple rules, without any central leader or complex choreography.
+This principle offers a way to add life to game worlds. A common application is simulating a school of fish, but a significant technical challenge arises when scaling up to large numbers.</description></item><item><title>TNonNullPtr: UE's bouncer for null pointers!</title><link>https://rezonated.github.io/posts/tnonnullptr/</link><pubDate>Sat, 08 Nov 2025 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/posts/tnonnullptr/</guid><description>Introduction If you&amp;rsquo;ve spent any time writing gameplay code in Unreal&amp;rsquo;s C++, you know the routine. The code we all have to write.
+Before you can safely use a pointer, you have to check it. This defensive habit is essential for preventing crashes, but it often leads to code that looks like this:
+1void AMyGameMode::StartRound(const AController* PlayerController) 2{ 3	if (PlayerController) 4	{ 5	if (PlayerController-&amp;gt;GetPawn&amp;lt;AMyCharacter&amp;gt;()) 6	{ 7	if (PlayerController-&amp;gt;GetPawn&amp;lt;AMyCharacter&amp;gt;()-&amp;gt;GetMyWeaponComponent()) 8	{ 9	PlayerController-&amp;gt;GetPawn&amp;lt;AMyCharacter&amp;gt;()-&amp;gt;GetMyWeaponComponent()-&amp;gt;EquipWeapon(); 10	} 11	} 12	} 13} This code is safe, perfectly fine.</description></item><item><title>Approaches to replicate Unreal Engine's TMap</title><link>https://rezonated.github.io/posts/tmap_replication/</link><pubDate>Sat, 14 Jun 2025 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/posts/tmap_replication/</guid><description>Introduction If you ever attempt to put a Replicated specifier on your UPROPERTY with TMap, your IDE or compiler might yell at you like this:
+Why can&amp;rsquo;t TMap be replicated by Unreal? Unreal&amp;rsquo;s built-in replication only supports certain types that the replication system knows how to serialize. This includes basic primitives, some containers like TArray, FVector, or custom structs containing UPROPERTY fields.
+TMap is considered a dynamic container because of its non-fixed size, ordering, and hashing behavior.</description></item><item><title>Networked Deterministic Array Shuffle in Unreal Engine</title><link>https://rezonated.github.io/posts/deterministic_shuffle/</link><pubDate>Fri, 13 Jun 2025 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/posts/deterministic_shuffle/</guid><description>Introduction Sometimes, you want to do a deterministic shuffle of an array for purposes like gacha mechanics, or in my case, replicating the Spin the Wheel minigame in Coral Island!
+At the time this feature was developed, it hadn&amp;rsquo;t yet been made to work with multiplayer. Even though Coral Island is a co-op game, not a competitive one, Unreal Engine still adopts a server-authoritative multiplayer model.
+The server must always act as the single source of truth.</description></item></channel></rss>
