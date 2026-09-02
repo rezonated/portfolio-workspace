@@ -1,0 +1,33 @@
+{{ define "main" }}
+
+{{ .Content }}
+
+{{/* Collection Section */}}
+
+{{ if .Site.Params.homeCollection }}
+
+<div class="list-container">
+    {{ with .Site.Params.homeCollectionTitle}}
+    <h1> {{ . }} </h1>
+    {{ end }}
+
+    {{ $pages := where .Site.RegularPages "Section" .Site.Params.homeCollection
+    }}
+
+    {{ $paginationSize := 1}}
+    {{ if (gt .Site.Params.paginationSize 0) }}
+    {{ $paginationSize = .Site.Params.paginationSize }}
+    {{ end }}
+
+    {{ $paginator := .Paginate $pages $paginationSize }}
+
+    {{ range $index, $page := $paginator.Pages }}
+    {{ partial "post-entry.html" $page}}
+    {{ end }}
+
+    {{ partial "pagination-controls.html" $paginator}}
+
+    {{ end }}
+</div>
+
+{{ end }}
