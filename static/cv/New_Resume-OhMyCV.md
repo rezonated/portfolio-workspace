@@ -30,13 +30,13 @@ Game Programmer with 5 years of experience engineering gameplay systems, multipl
 ----
 #### [Coral Island](https://store.steampowered.com/app/1158160/Coral_Island/) - Unreal Engine 4
 
-**Senior Gameplay Programmer (02/2026 - Present)**
+Senior Gameplay Programmer (02/2026 - Present)
 - Own maintenance and feature development for post-launch content updates (v1.2+), keeping live builds stable across PC and consoles.
 - Triage and resolve live-title gameplay issues (single-player and multiplayer) for scheduled patch releases.
 - Extend legacy single-player-first systems while preserving multiplayer synchronization and console compliance.
-
-**Gameplay Programmer (08/2024 - 02/2026)**
-- Refactored core gameplay loops (combat, inventory, interactables) for seamless multiplayer synchronization.
+---
+Gameplay Programmer (08/2024 - 02/2026)
+- Refactored core gameplay loops (cutscene, dialogues, festivals) for seamless multiplayer synchronization.
 - Optimized network sync via ReplicationGraph, push-model networking, and custom net serialization (fast array, atomic replication).
 - Resolved critical gameplay bugs and integrated new features across single-player and multiplayer modes.
 - Secured PlayStation and Xbox certification by resolving critical compliance blockers.
@@ -65,11 +65,13 @@ Brandoville Studios
 - Implemented enemy AI behavior using StateTree.
 
 ----
+
 #### Internal Tools
 - Developed a Python launcher tool for artists and animators; configured Jenkins CI/CD with Perforce integration.
 - Built backend and deployment pipeline (Golang, MongoDB, Docker) for an internal shopping app.
-
 ----
+
+
 **Freelance Game Programmer**
   ~ 09/2022 - 06/2023
 
