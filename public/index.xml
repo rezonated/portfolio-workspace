@@ -1,20 +1,176 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Vanan Andreas on V's personal site</title><link>https://rezonated.github.io/</link><description>Recent content in Vanan Andreas on V's personal site</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><lastBuildDate>Tue, 11 Nov 2025 00:00:00 +0000</lastBuildDate><atom:link href="https://rezonated.github.io/index.xml" rel="self" type="application/rss+xml"/><item><title>Simulating 1000 flocking fish in Unreal Engine</title><link>https://rezonated.github.io/posts/1000_boids/</link><pubDate>Tue, 11 Nov 2025 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/posts/1000_boids/</guid><description>Introduction Simulating the flocking behavior of birds or the schooling of fish is a classic problem in computer graphics. The Boids algorithm, created by Craig Reynolds in 1986, offers a powerful solution. It demonstrates how complex, life-like group motion can emerge from individuals following a few simple rules, without any central leader or complex choreography.
-This principle offers a way to add life to game worlds. A common application is simulating a school of fish, but a significant technical challenge arises when scaling up to large numbers.</description></item><item><title>TNonNullPtr: UE's bouncer for null pointers!</title><link>https://rezonated.github.io/posts/tnonnullptr/</link><pubDate>Sat, 08 Nov 2025 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/posts/tnonnullptr/</guid><description>Introduction If you&amp;rsquo;ve spent any time writing gameplay code in Unreal&amp;rsquo;s C++, you know the routine. The code we all have to write.
-Before you can safely use a pointer, you have to check it. This defensive habit is essential for preventing crashes, but it often leads to code that looks like this:
-1void AMyGameMode::StartRound(const AController* PlayerController) 2{ 3	if (PlayerController) 4	{ 5	if (PlayerController-&amp;gt;GetPawn&amp;lt;AMyCharacter&amp;gt;()) 6	{ 7	if (PlayerController-&amp;gt;GetPawn&amp;lt;AMyCharacter&amp;gt;()-&amp;gt;GetMyWeaponComponent()) 8	{ 9	PlayerController-&amp;gt;GetPawn&amp;lt;AMyCharacter&amp;gt;()-&amp;gt;GetMyWeaponComponent()-&amp;gt;EquipWeapon(); 10	} 11	} 12	} 13} This code is safe, perfectly fine.</description></item><item><title>Approaches to replicate Unreal Engine's TMap</title><link>https://rezonated.github.io/posts/tmap_replication/</link><pubDate>Sat, 14 Jun 2025 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/posts/tmap_replication/</guid><description>Introduction If you ever attempt to put a Replicated specifier on your UPROPERTY with TMap, your IDE or compiler might yell at you like this:
-Why can&amp;rsquo;t TMap be replicated by Unreal? Unreal&amp;rsquo;s built-in replication only supports certain types that the replication system knows how to serialize. This includes basic primitives, some containers like TArray, FVector, or custom structs containing UPROPERTY fields.
-TMap is considered a dynamic container because of its non-fixed size, ordering, and hashing behavior.</description></item><item><title>Networked Deterministic Array Shuffle in Unreal Engine</title><link>https://rezonated.github.io/posts/deterministic_shuffle/</link><pubDate>Fri, 13 Jun 2025 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/posts/deterministic_shuffle/</guid><description>Introduction Sometimes, you want to do a deterministic shuffle of an array for purposes like gacha mechanics, or in my case, replicating the Spin the Wheel minigame in Coral Island!
-At the time this feature was developed, it hadn&amp;rsquo;t yet been made to work with multiplayer. Even though Coral Island is a co-op game, not a competitive one, Unreal Engine still adopts a server-authoritative multiplayer model.
-The server must always act as the single source of truth.</description></item><item><title>CV</title><link>https://rezonated.github.io/cv/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/cv/</guid><description>Download</description></item><item><title>Projects</title><link>https://rezonated.github.io/projects/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/projects/</guid><description>A list of my past and current projects:
-Project Wiki
-ue-restyle My fork of Restyle, an Unreal Engine 5 plugin that redesigns graph editors. My version adds compatibility for major engine updates.
-Technologies:
-Unreal Engine 5 C++ Slate UI GitHub repo
-OpenAI Unreal A plugin that wraps OpenAI API and exposes its functionality to Unreal Engine&amp;rsquo;s Blueprint system.
-Technologies:
-Unreal Engine 5 C++ HTTP JSON Unreal automation suite functional tests GitHub repo</description></item><item><title>V's Personal Interview Preparation Note</title><link>https://rezonated.github.io/intv_prep/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/intv_prep/</guid><description>Wow you found this page, welcome! It&amp;rsquo;s either you;
-Typed the correct URL (if that&amp;rsquo;s the case, congrats!) One of people that I trust and owe something to, so I hope this can help and paid a bit of something I owed Here&amp;rsquo;s my personal interview preparation note. It started as an old note that I wrote back in college as a fresh-graduate, found in an old hard drive
-But I decided to improve the whole thing by fact-checking and adding some things that either actually get asked in the interview or things that I learned, gained and experienced during my ~5 years of career thus far</description></item><item><title>Whoami</title><link>https://rezonated.github.io/whoami/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/whoami/</guid><description>Wow you found this page!
-Hi again, my name is Vanan Andreas, although my full name is actually a lot longer than that ( Andreas Evananda Gusti Purwanto ) - an Indonesian programmer specializing in game development using major game engines (Unreal Engine, Unity).
-I don&amp;rsquo;t have any reward for you for finding this page, but feel free to scroll through to know me a bit more!
-Preferred tools Hardware PC CPU: AMD Ryzen 9 5950X GPU: GALAX NVIDIA RTX 3070 Ti Motherboard: MSI MPG X570 Gaming Plus RAM: 4x32GB DDR4 Corsair Vengeance RGB PRO PSU: MSI MPG A850GF Cooler: Deepcool LT720 360mm Storage: 2x4TB Samsung 990 PRO 4x4TB WD Blue Case: MSI MPG Gungnir 110R Laptop: ThinkPad T61 w/ Middleton BIOS CPU: Harvested Intel Core2Duo T9500 RAM: Harvested 2x4GB DDR3 OEM sticks Misc.</description></item></channel></rss>
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Vanan Andreas on V's personal site</title><link>https://rezonated.github.io/</link><description>Recent content in Vanan Andreas on V's personal site</description><generator>Hugo</generator><language>en-us</language><lastBuildDate>Tue, 11 Nov 2025 00:00:00 +0000</lastBuildDate><atom:link href="https://rezonated.github.io/index.xml" rel="self" type="application/rss+xml"/><item><title>Simulating 1000 flocking fish in Unreal Engine</title><link>https://rezonated.github.io/posts/1000_boids/</link><pubDate>Tue, 11 Nov 2025 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/posts/1000_boids/</guid><description>&lt;h1 class="heading" id="introduction">
+ Introduction
+ &lt;a class="anchor" href="#introduction">#&lt;/a>
+&lt;/h1>
+&lt;p>Simulating the flocking behavior of birds or the schooling of fish is a classic problem in computer graphics. The Boids algorithm, created by &lt;a href="https://www.red3d.com/cwr/">Craig Reynolds&lt;/a> in 1986, offers a powerful solution. It demonstrates how complex, life-like group motion can emerge from individuals following a few simple rules, without any central leader or complex choreography.&lt;/p>
+&lt;p>This principle offers a way to add life to game worlds. A common application is simulating a school of fish, but a significant technical challenge arises when scaling up to large numbers. The target here was to effectively simulate a school of 1000 fish, moving as one cohesive unit while still allowing for individual interaction.&lt;/p></description></item><item><title>TNonNullPtr: UE's bouncer for null pointers!</title><link>https://rezonated.github.io/posts/tnonnullptr/</link><pubDate>Sat, 08 Nov 2025 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/posts/tnonnullptr/</guid><description>&lt;h1 class="heading" id="introduction">
+ Introduction
+ &lt;a class="anchor" href="#introduction">#&lt;/a>
+&lt;/h1>
+&lt;p>If you&amp;rsquo;ve spent any time writing gameplay code in Unreal&amp;rsquo;s C++, you know the routine. The code we all have to write.&lt;/p>
+&lt;p>Before you can safely use a pointer, you have to check it. This defensive habit is essential for preventing crashes, but it often leads to code that looks like this:&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" style="color:#ccc;background-color:#000;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-cpp" data-lang="cpp">&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 1&lt;/span>&lt;span>&lt;span style="color:#00cd00">void&lt;/span> AMyGameMode&lt;span style="color:#39c">::&lt;/span>StartRound(&lt;span style="color:#cdcd00">const&lt;/span> AController&lt;span style="color:#39c">*&lt;/span> PlayerController)
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 2&lt;/span>&lt;span>{
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 3&lt;/span>&lt;span>	&lt;span style="color:#cdcd00">if&lt;/span> (PlayerController)
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 4&lt;/span>&lt;span>	{
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 5&lt;/span>&lt;span>		&lt;span style="color:#cdcd00">if&lt;/span> (PlayerController&lt;span style="color:#39c">-&amp;gt;&lt;/span>GetPawn&lt;span style="color:#39c">&amp;lt;&lt;/span>AMyCharacter&lt;span style="color:#39c">&amp;gt;&lt;/span>())
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 6&lt;/span>&lt;span>		{
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 7&lt;/span>&lt;span>			&lt;span style="color:#cdcd00">if&lt;/span> (PlayerController&lt;span style="color:#39c">-&amp;gt;&lt;/span>GetPawn&lt;span style="color:#39c">&amp;lt;&lt;/span>AMyCharacter&lt;span style="color:#39c">&amp;gt;&lt;/span>()&lt;span style="color:#39c">-&amp;gt;&lt;/span>GetMyWeaponComponent())
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 8&lt;/span>&lt;span>			{
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666"> 9&lt;/span>&lt;span>				PlayerController&lt;span style="color:#39c">-&amp;gt;&lt;/span>GetPawn&lt;span style="color:#39c">&amp;lt;&lt;/span>AMyCharacter&lt;span style="color:#39c">&amp;gt;&lt;/span>()&lt;span style="color:#39c">-&amp;gt;&lt;/span>GetMyWeaponComponent()&lt;span style="color:#39c">-&amp;gt;&lt;/span>EquipWeapon();
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">10&lt;/span>&lt;span>			}
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">11&lt;/span>&lt;span>		}
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">12&lt;/span>&lt;span>	}
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:0.4em;padding:0 0.4em 0 0.4em;color:#666">13&lt;/span>&lt;span>}
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>This code is safe, perfectly fine. But it&amp;rsquo;s not clean. The core intent is buried under layers of validation. What if&amp;hellip; we could flip this pattern on its head?&lt;/p></description></item><item><title>Approaches to replicate Unreal Engine's TMap</title><link>https://rezonated.github.io/posts/tmap_replication/</link><pubDate>Sat, 14 Jun 2025 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/posts/tmap_replication/</guid><description>&lt;h1 class="heading" id="introduction">
+ Introduction
+ &lt;a class="anchor" href="#introduction">#&lt;/a>
+&lt;/h1>
+&lt;p>If you ever attempt to put a &lt;code>Replicated&lt;/code> specifier on your &lt;code>UPROPERTY&lt;/code> with &lt;code>TMap&lt;/code>, your IDE or compiler might yell at you like this:&lt;/p>
+&lt;p>
+
+
+
+&lt;p>
+ &lt;img src="https://rezonated.github.io/posts/tmap_replication/tmap_doesnt_support_replication.png" 
+ alt="TMap Replication Attempt" 
+ 
+ title="Replication maps are not supported?" />
+&lt;/p>&lt;/p>
+&lt;h1 class="heading" id="why-cant-tmap-be-replicated-by-unreal">
+ Why can&amp;rsquo;t TMap be replicated by Unreal?
+ &lt;a class="anchor" href="#why-cant-tmap-be-replicated-by-unreal">#&lt;/a>
+&lt;/h1>
+&lt;p>Unreal&amp;rsquo;s built-in replication only supports certain types that the replication system knows how to serialize. This includes basic primitives, some containers like &lt;code>TArray&lt;/code>, &lt;code>FVector&lt;/code>, or custom structs containing &lt;code>UPROPERTY&lt;/code> fields.&lt;/p></description></item><item><title>Networked Deterministic Array Shuffle in Unreal Engine</title><link>https://rezonated.github.io/posts/deterministic_shuffle/</link><pubDate>Fri, 13 Jun 2025 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/posts/deterministic_shuffle/</guid><description>&lt;h1 class="heading" id="introduction">
+ Introduction
+ &lt;a class="anchor" href="#introduction">#&lt;/a>
+&lt;/h1>
+&lt;p>Sometimes, you want to do a deterministic shuffle of an array for purposes like gacha mechanics, or in my case, replicating the Spin the Wheel minigame in Coral Island!&lt;/p>
+&lt;p>
+
+
+
+&lt;p>
+ &lt;img src="https://rezonated.github.io/posts/deterministic_shuffle/spin_the_wheel.png" 
+ alt="Spin the Wheel - Coral Island" 
+ 
+ title="One of festival minigames that players can play in Coral Island" />
+&lt;/p>&lt;/p>
+&lt;p>At the time this feature was developed, it hadn&amp;rsquo;t yet been made to work with multiplayer. Even though Coral Island is a co-op game, not a competitive one, Unreal Engine still adopts a server-authoritative multiplayer model.&lt;/p></description></item><item><title>CV</title><link>https://rezonated.github.io/cv/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/cv/</guid><description>&lt;p>&lt;a href="https://rezonated.github.io/cv/Vanan%20Andreas%20-%20CV%20Sept%2026.pdf">Download&lt;/a>&lt;/p>
+&lt;embed src="https://rezonated.github.io/cv/Vanan%20Andreas%20-%20CV%20Sept%2026.pdf" type="application/pdf" width="100%" height="1200px"></description></item><item><title>Projects</title><link>https://rezonated.github.io/projects/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/projects/</guid><description>&lt;p>A list of my past and current projects:&lt;/p>
+&lt;p>&lt;a href="https://rezonated.github.io/wiki/">Project Wiki&lt;/a>&lt;/p>
+&lt;details>
+ &lt;summary>&lt;span style="font-size: 1.25em; font-weight: bold;">ue-restyle&lt;/span>&lt;/summary>
+ &lt;p>My fork of &lt;a href="https://github.com/AgitoReiKen/ue-restyle">Restyle&lt;/a>, an Unreal Engine 5 plugin that redesigns graph editors. My version adds compatibility for major engine updates.&lt;/p>
+&lt;p>&lt;strong>Technologies:&lt;/strong>&lt;/p>
+&lt;ul>
+&lt;li>Unreal Engine 5&lt;/li>
+&lt;li>C++&lt;/li>
+&lt;li>Slate UI&lt;/li>
+&lt;/ul>
+&lt;p>&lt;a href="https://github.com/rezonated/ue-restyle">GitHub repo&lt;/a>&lt;/p>
+&lt;p align="center">
+ &lt;img src="https://camo.githubusercontent.com/d35d3a578222b7c17f46501e94b522a26d1e87f8a43232d682916de7890b8c35/68747470733a2f2f696d61676573322e696d67626f782e636f6d2f34322f63322f796b4b54633831595f6f2e706e67" alt="ue-restyle">
+&lt;/p>
+
+ &lt;/details>
+ 
+&lt;hr>
+&lt;details>
+ &lt;summary>&lt;span style="font-size: 1.25em; font-weight: bold;">OpenAI Unreal&lt;/span>&lt;/summary>
+ &lt;p>A plugin that wraps OpenAI API and exposes its functionality to Unreal Engine&amp;rsquo;s Blueprint system.&lt;/p>
+&lt;p>&lt;strong>Technologies:&lt;/strong>&lt;/p>
+&lt;ul>
+&lt;li>Unreal Engine 5&lt;/li>
+&lt;li>C++&lt;/li>
+&lt;li>HTTP&lt;/li>
+&lt;li>JSON&lt;/li>
+&lt;li>Unreal automation suite functional tests&lt;/li>
+&lt;/ul>
+&lt;p>&lt;a href="https://github.com/rezonated/openai-unreal">GitHub repo&lt;/a>&lt;/p></description></item><item><title>V's Personal Interview Preparation Note</title><link>https://rezonated.github.io/intv_prep/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/intv_prep/</guid><description>&lt;p>Wow you found this page, welcome! It&amp;rsquo;s either you;&lt;/p>
+&lt;ul>
+&lt;li>Typed the correct URL (if that&amp;rsquo;s the case, congrats!)&lt;/li>
+&lt;li>One of people that I trust and owe something to, so I hope this can help and paid a bit of something I owed&lt;/li>
+&lt;/ul>
+&lt;p>Here&amp;rsquo;s my personal interview preparation note. It started as an old note that I wrote back in college as a fresh-graduate, found in an old hard drive&lt;/p>
+&lt;p>But I decided to improve the whole thing by fact-checking and adding some things that either actually get asked in the interview or things that I learned, gained and experienced during my ~5 years of career thus far&lt;/p></description></item><item><title>Whoami</title><link>https://rezonated.github.io/whoami/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://rezonated.github.io/whoami/</guid><description>&lt;p>Wow you found this page!&lt;/p>
+&lt;p>Hi again, my name is Vanan Andreas, although my full name is actually a &lt;em>lot&lt;/em> longer than that (&lt;div class="spoiler" onclick="this.classList.toggle('revealed')">
+ Andreas E&lt;em>vanan&lt;/em>da Gusti Purwanto
+&lt;/div>) - an Indonesian programmer specializing in game development using major game engines (Unreal Engine, Unity).&lt;/p>
+&lt;p>I don&amp;rsquo;t have any reward for you for finding this page, but feel free to scroll through to know me a bit more!&lt;/p>
+&lt;details>
+ &lt;summary>&lt;span style="font-size: 1.25em; font-weight: bold;">Preferred tools&lt;/span>&lt;/summary>
+ &lt;h3 class="heading" id="hardware">
+ Hardware
+ &lt;a class="anchor" href="#hardware">#&lt;/a>
+&lt;/h3>
+&lt;h4 class="heading" id="pc">
+ PC
+ &lt;a class="anchor" href="#pc">#&lt;/a>
+&lt;/h4>
+&lt;ul>
+&lt;li>CPU: AMD Ryzen 9 5950X&lt;/li>
+&lt;li>GPU: GALAX NVIDIA RTX 3070 Ti&lt;/li>
+&lt;li>Motherboard: MSI MPG X570 Gaming Plus&lt;/li>
+&lt;li>RAM: 4x32GB DDR4 Corsair Vengeance RGB PRO&lt;/li>
+&lt;li>PSU: MSI MPG A850GF&lt;/li>
+&lt;li>Cooler: Deepcool LT720 360mm&lt;/li>
+&lt;li>Storage:
+&lt;ul>
+&lt;li>2x4TB Samsung 990 PRO&lt;/li>
+&lt;li>4x4TB WD Blue&lt;/li>
+&lt;/ul>
+&lt;/li>
+&lt;li>Case: MSI MPG Gungnir 110R&lt;/li>
+&lt;/ul>
+&lt;h4 class="heading" id="laptop-thinkpad-t61-w-middleton-bios">
+ Laptop: ThinkPad T61 w/ Middleton BIOS
+ &lt;a class="anchor" href="#laptop-thinkpad-t61-w-middleton-bios">#&lt;/a>
+&lt;/h4>
+&lt;ul>
+&lt;li>CPU: Harvested Intel Core2Duo T9500&lt;/li>
+&lt;li>RAM: Harvested 2x4GB DDR3 OEM sticks&lt;/li>
+&lt;/ul>
+&lt;h4 class="heading" id="misc">
+ Misc.
+ &lt;a class="anchor" href="#misc">#&lt;/a>
+&lt;/h4>
+&lt;ul>
+&lt;li>Keyboard: I often switch, but currently daily-driving a WKL Class60.&lt;/li>
+&lt;li>Mouse: Logitech Ergo M575&lt;/li>
+&lt;li>Phone: 1TB Realme GT Neo 5 SE&lt;/li>
+&lt;li>IEM: Simgot EW300&lt;/li>
+&lt;li>DAC/DAP: xDuoo X2s (yes, this can function as both and it&amp;rsquo;s cheap - I love it &amp;lt;3)&lt;/li>
+&lt;li>Headphone: beyerdynamic DT 990 PRO&lt;/li>
+&lt;/ul>
+&lt;h3 class="heading" id="software">
+ Software
+ &lt;a class="anchor" href="#software">#&lt;/a>
+&lt;/h3>
+&lt;h4 class="heading" id="pc-1">
+ PC
+ &lt;a class="anchor" href="#pc-1">#&lt;/a>
+&lt;/h4>
+&lt;ul>
+&lt;li>OS: Windows 11&lt;/li>
+&lt;li>IDE/text editor: JetBrains IDEs, and Neovim when I don&amp;rsquo;t need a debugger or Unreal Engine support&lt;/li>
+&lt;li>YASB, Windhawk (so it looks like a Linux desktop at a glance)&lt;/li>
+&lt;li>PowerToys (FancyZones and ColorPicker are essential)&lt;/li>
+&lt;li>&lt;a href="https://mouseless.click/">Mouseless&lt;/a> (highly recommended - keyboard navigation is the future)&lt;/li>
+&lt;/ul>
+&lt;h4 class="heading" id="laptop">
+ Laptop
+ &lt;a class="anchor" href="#laptop">#&lt;/a>
+&lt;/h4>
+&lt;ul>
+&lt;li>OS: Void Linux&lt;/li>
+&lt;li>Window Manager: i3&lt;/li>
+&lt;li>Text editor: Neovim&lt;/li>
+&lt;/ul>
+
+ &lt;/details>
+ 
+&lt;hr>
+&lt;details>
+ &lt;summary>&lt;span style="font-size: 1.25em; font-weight: bold;">Mechanical Keyboards&lt;/span>&lt;/summary>
+ &lt;p>Outside of work, I’m quite into custom mechanical keyboards. I’ve fallen into the rabbit hole ever since COVID started.&lt;/p></description></item></channel></rss>

@@ -13,7 +13,7 @@ Wow you found this page, welcome! It's either you;
 
 Here's my personal interview preparation note. It started as an old note that I wrote back in college as a fresh-graduate, found in an old hard drive
 
-But I decided to improve the whole thing by fact-checking and adding some things that either actually get asked in the interview or things that I learned, gained and experienced during my ~4+ years of career thus far
+But I decided to improve the whole thing by fact-checking and adding some things that either actually get asked in the interview or things that I learned, gained and experienced during my ~5 years of career thus far
 
 _// TODO: Visualize several things with three.js just like [1000 boids](../posts/1000_boids) article?_
 

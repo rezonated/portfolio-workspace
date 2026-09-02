@@ -42,3 +42,44 @@ figure.tall-figure img {
   height: auto;
   display: block;
 }
+
+.music-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.music-row img {
+  width: 64px;
+  height: 64px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.music-info {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.4;
+  min-width: 0;
+}
+
+.music-track {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.music-artist {
+  font-size: 0.85em;
+  opacity: 0.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.music-artist:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
